@@ -21,7 +21,6 @@ from matplotlib.animation import FuncAnimation
 # Typing imports
 from typing_extensions import Self
 from typing import Tuple
-from collections.abc import Callable
 
 class _Framing():
     def _body2inertial(phi: float, theta: float, psi: float) -> np.ndarray:
