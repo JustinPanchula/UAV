@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from mpl_toolkits import mplot3d as mpl
-from matplotlib.widgets import Slider, Button
+from matplotlib.widgets import Slider
 from matplotlib.animation import FuncAnimation
 
 # Typing imports
@@ -236,10 +236,10 @@ class UAV():
         sliders[4].on_changed(_update_sliders)
         sliders[5].on_changed(_update_sliders)
 
-def simulate(meshFile: str = 'Assignment 05\\F117.stl', title: str = 'F-117 Nighthawk (1:1)', saveFile: str = 'Simulation'):
-    uav = UAV(meshFile)
-    fig, ax = uav.plot(title)
+if __name__ == '__main__':
+    uav = UAV('F117.stl')
+    fig, ax = uav.plot('F117 Nighthawk (1:1)')
     uav.update_uav(Plotting.generate_sliders(fig))
-    anim = FuncAnimation(fig, Plotting.update_plot, frames=60, blit=False, fargs=[uav, ax, title])
+    anim = FuncAnimation(fig, Plotting.update_plot, frames=60, blit=False, fargs=[uav, ax, 'F117 Nighthawk (1:1)'])
     plt.show()
     anim.save
