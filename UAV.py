@@ -7,7 +7,9 @@ __status__ = 'Dev'
 __doc__ = """This file is used to store all the methods necessary to generate any aircraft from an STL file and simulate its movement."""
 
 # Imports
+from matplotlib.animation import FuncAnimation
 import numpy as np
+import control as ctrl
 from stl import mesh
 
 # Matplotlib imports
@@ -16,7 +18,6 @@ from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from mpl_toolkits import mplot3d as mpl
 from matplotlib.widgets import Slider
-from matplotlib.animation import FuncAnimation
 
 # Typing imports
 from typing_extensions import Self
@@ -31,6 +32,22 @@ class _Framing():
                       [-np.sin(theta), np.sin(phi) * np.cos(theta), np.cos(phi) * np.cos(theta)]])
         return R
 
+    def _body2stability(alpha: float) -> np.ndarray:
+        R = np.array([[np.cos(alpha, 0, np.sin(alpha))],
+                      [0, 1, 0],
+                      [-np.sin(alpha), 0, np.cos(alpha)]])
+        return R
+
+    def _stability2wind(beta: float) -> np.ndarray:
+        R = np.array([[np.cos(beta), np.sin(beta), 0],
+                      [-np.sin(beta), np.cos(beta), 0],
+                      [0, 0, 1]])
+        return R
+
+class _environment():
+    def _wind_gust(phi: float, theta: float, psi: float, Va: float, dt: float) -> np.ndarray:
+        return
+
 class Plotting():
     def generate_sliders(fig: Figure) -> np.ndarray:
         """Generates aircraft control sliders on the provided figure.
@@ -43,127 +60,100 @@ class Plotting():
         """
         sliders = np.empty(6, dtype=Slider)
 
-        # North
+        # Fx
         sliders[0] = Slider(
             ax=fig.add_axes([0.05, 0.25, 0.0225, 0.63]),  # Left, Bottom, Width, Height
-            label='North',
-            valmin=-1,
-            valmax=1,
-            valstep=0.01,
+            label='Fx',
+            valmin=-50,
+            valmax=50,
+            valstep=1,
             valinit=0,
             orientation='vertical'
         )
-        # East
+        # Fy
         sliders[1] = Slider(
             ax=fig.add_axes([0.11, 0.25, 0.0225, 0.63]),
-            label='East',
-            valmin=-1,
-            valmax=1,
-            valstep=0.01,
+            label='Fy',
+            valmin=-50,
+            valmax=50,
+            valstep=1,
             valinit=0,
             orientation='vertical'
         )
-        # Down
+        # Fz
         sliders[2] = Slider(
             ax=fig.add_axes([0.17, 0.25, 0.0225, 0.63]),
-            label='Down',
-            valmin=-1,
-            valmax=1,
-            valstep=0.01,
+            label='Fz',
+            valmin=-50,
+            valmax=50,
+            valstep=1,
             valinit=0,
             orientation='vertical'
         )
-        # Pitch
+        # Mx
         sliders[3] = Slider(
             ax=fig.add_axes([0.25, 0.08, 0.65, 0.03]),
-            label='Pitch',
-            valmin=np.radians(-90),
-            valmax=np.radians(90),
-            valstep=np.radians(1),
+            label='Mx',
+            valmin=-50,
+            valmax=50,
+            valstep=1,
             valinit=0
         )
-        # Roll
+        # My
         sliders[4] = Slider(
             ax=fig.add_axes([0.25, 0.05, 0.65, 0.03]),
-            label='Roll',
-            valmin=np.radians(-90),
-            valmax=np.radians(90),
-            valstep=np.radians(1),
+            label='My',
+            valmin=-50,
+            valmax=50,
+            valstep=1,
             valinit=0
         )
-        # Yaw
+        # Mz
         sliders[5] = Slider(
             ax=fig.add_axes([0.25, 0.02, 0.65, 0.03]),
-            label='Yaw',
-            valmin=np.radians(-90),
-            valmax=np.radians(90),
-            valstep=np.radians(1),
+            label='Mz',
+            valmin=-50,
+            valmax=50,
+            valstep=1,
             valinit=0
         )
         return sliders
 
-    def update_plot(t: float, uav: object, planeAx: Axes, title: str, scaleFactor: float = 1/6) -> None:
-        uav.theMesh.y -= uav._north * 50
-        uav.north = np.append(uav.north, uav._north)
-        uav.theMesh.x += uav._east * 50
-        uav.east = np.append(uav.east, uav._east)
-        uav.theMesh.z -= uav._down * 50
-        uav.down = np.append(uav.down, uav._down)
-        uav.theMesh.rotate([0.5, 0.0, 0.0], -uav._pitch)
-        uav.pitch = np.append(uav.pitch, uav._pitch)
-        uav.theMesh.rotate([0.0, 0.5, 0.0], -uav._roll)
-        uav.roll = np.append(uav.roll, uav._roll)
-        uav.theMesh.rotate([0.0, 0.0, 0.5], uav._yaw)
-        uav.yaw = np.append(uav.yaw, uav._yaw)
-
-        # Clear the axis
-        planeAx.clear()
-
-        # Re-add collection
-        collection = mpl.art3d.Poly3DCollection(uav.theMesh.vectors * scaleFactor, edgecolor='black', linewidth=0.2)
-        planeAx.add_collection3d(collection)
-
-        # Auto scale to mesh size
-        scale = uav.theMesh.points.flatten() * scaleFactor
-        planeAx.auto_scale_xyz(scale, scale, scale)
-
-        # Format the plot
-        planeAx.set_title(title)
-        return planeAx
-
 class UAV():
-    def __init__(self, meshFile: str, north: float = 0.0, east: float = 0.0, down: float = 0.0, pitch: float = 0.0, roll: float = 0.0, yaw: float = 0.0) -> None:
+    def __init__(self, meshFile: str, mass: float = 25.0, Jx: float = 0.8244, Jy: float = 1.135, Jz: float = 1.759, Jxz: float = 0.1204) -> None:
         """Instantiates the object and sets values.
 
         Args:
-            meshFile (str): The .stl file of the uav.
-            north (float, optional): The position north. Defaults to 0.0.
-            east (float, optional): The position east. Defaults to 0.0.
-            down (float, optional): The position down. Defaults to 0.0.
-            pitch (float, optional): The pitch angle in radians. Defaults to 0.0.
-            roll (float, optional): The roll angle in radians. Defaults to 0.0.
-            yaw (float, optional): The yaw angle in radians. Defaults to 0.0.
+            meshFile (str): The .stl file of the UAV.
+            mass (float): The mass of the UAV. Defaults to 25 kg.
+            Jx (float): The moment of inertia about the x-axis. Defaults to 0.8244 __
+            Jy (float): The moment of inertia about the y-axis. Defaults to 1.1350 __
+            Jz (float): The moment of inertia about the z-axis. Defaults to 1.7590 __
+            Jxz (float): The product of inertia about the x-, and z-axis: this is the coupling between roll and yaw. Defaults to 0.1204
         """
-        # Get mesh file data
-        theMesh = mesh.Mesh.from_file(meshFile)
+        # Set mesh
+        self.Mesh = mesh.Mesh.from_file(meshFile)
 
-        # Rotate file if default
-        if meshFile == 'Assignment 05\\F117.stl':
-            theMesh.rotate([0, 0, 0.5], np.radians(90+47.5))
-        # Set values
-        self.theMesh = theMesh
-        self.north = np.array([north])
+        # Set positional values
+        self.north = np.array([0.0], float)
         self._north = 0.0
-        self.east = np.array([east])
+        self.east = np.array([0.0], float)
         self._east = 0.0
-        self.down = np.array([down])
+        self.down = np.array([0.0], float)
         self._down = 0.0
-        self.pitch = np.array([pitch])
-        self._pitch = 0.0
-        self.roll = np.array([roll])
+        self.roll = np.array([0.0], float)
         self._roll = 0.0
-        self.yaw = np.array([yaw])
+        self.pitch = np.array([0.0], float)
+        self._pitch = 0.0
+        self.yaw = np.array([0.0], float)
         self._yaw = 0.0
+
+        # Set property values
+        self.mass = mass
+        self.Jx = Jx
+        self.Jy = Jy
+        self.Jz = Jz
+        self.Jxz = Jxz
 
     def _print_coordinates(self: Self) -> None:
         """Print the coordinates of the self object.
@@ -172,18 +162,18 @@ class UAV():
             self (Self): Self object.
         """
         print('\n---------Coordinates---------')
-        print('North: {0:.4f} meters'.format(self.north.sum()))
-        print('East: {0:.4f} meters'.format(self.east.sum()))
-        print('Down: {0:.4f} meters'.format(self.down.sum()))
-        print('Pitch: {0:.4f} radians'.format(self.pitch.sum()))
-        print('Roll: {0:.4f} radians'.format(self.roll.sum()))
-        print('Yaw: {0:.4f} radians'.format(self.yaw.sum()))
+        print('North: {} meters'.format(self.north.sum()))
+        print('East: {} meters'.format(self.east.sum()))
+        print('Down: {} meters'.format(self.down.sum()))
+        print('Pitch: {:.4f} radians'.format(self.pitch.sum()))
+        print('Roll: {:.4f} radians'.format(self.roll.sum()))
+        print('Yaw: {:.4f} radians'.format(self.yaw.sum()))
         print('-----------------------------')
 
     def plot(self: Self, title: str, scaleFactor: float = 1/6) -> Tuple[Figure, Axes]:
         """Plots a mesh
         Args:
-            theMesh (mesh.Mesh): The mesh to plot.
+            self (Self): The UAV.
             title (string): The name of the plot.
             scaleFactor (float, optional): The scale factor of the object resolved in meteres. Defaults to 1/6.
 
@@ -195,11 +185,11 @@ class UAV():
         ax = fig.add_subplot(1, 1, 1, projection='3d')
 
         # Add mesh to plot
-        collection = mpl.art3d.Poly3DCollection(self.theMesh.vectors * scaleFactor, edgecolor='black', linewidth=0.2)
+        collection = mpl.art3d.Poly3DCollection(self.Mesh.vectors * scaleFactor, edgecolor='black', linewidth=0.2)
         ax.add_collection3d(collection)
 
         # Auto scale to mesh size
-        scale = self.theMesh.points.flatten() * scaleFactor
+        scale = self.Mesh.points.flatten() * scaleFactor
         ax.auto_scale_xyz(scale, scale, scale)
 
         # Format the plot
@@ -236,9 +226,12 @@ class UAV():
         sliders[5].on_changed(_update_sliders)
 
 if __name__ == '__main__':
-    uav = UAV('F117.stl')
-    fig, ax = uav.plot('F117 Nighthawk (1:1)')
-    uav.update_uav(Plotting.generate_sliders(fig))
-    anim = FuncAnimation(fig, Plotting.update_plot, frames=60, blit=False, fargs=[uav, ax, 'F117 Nighthawk (1:1)'])
+    meshFile = 'F117.stl'
+    title = 'F117 Nighthawk (1:1)'
+    uav = UAV(meshFile)
+    fig, ax = uav.plot(title)
+    sliders = Plotting.generate_sliders(fig)
+    uav.update_uav(sliders)
+    anim = FuncAnimation(fig, Plotting.update_plot, frames=60, blit=False, fargs=[uav, ax, title])
     plt.show()
     anim.save
