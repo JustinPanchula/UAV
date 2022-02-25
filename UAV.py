@@ -134,21 +134,33 @@ class UAV():
         # Set mesh
         self.Mesh = mesh.Mesh.from_file(meshFile)
 
-        # Set positional values
-        self.north = np.array([0.0], float)
+        # Set states values
+        self.north = np.array([0.0], float)     # Position North
         self._north = 0.0
-        self.east = np.array([0.0], float)
+        self.east = np.array([0.0], float)      # Position East
         self._east = 0.0
-        self.down = np.array([0.0], float)
+        self.down = np.array([0.0], float)      # Position South
         self._down = 0.0
-        self.roll = np.array([0.0], float)
-        self._roll = 0.0
-        self.pitch = np.array([0.0], float)
-        self._pitch = 0.0
-        self.yaw = np.array([0.0], float)
-        self._yaw = 0.0
+        self.u = np.array([0.0], float)         # Velocity along i
+        self._u = 0.0
+        self.v = np.array([0.0], float)         # Velocity along j
+        self._v = 0.0
+        self.w = np.array([0.0], float)         # Velocity along k
+        self._w = 0.0
+        self.phi = np.array([0.0], float)       # Roll
+        self._phi = 0.0
+        self.theta = np.array([0.0], float)     # Pitch
+        self._theta = 0.0
+        self.psi = np.array([0.0], float)       # Yaw
+        self._psi = 0.0
+        self.p = np.array([0.0], float)         # Roll rate
+        self._p = 0.0
+        self.q = np.array([0.0], float)         # Pitch rate
+        self._q = 0.0
+        self.r = np.array([0.0], float)         # Yaw rate
+        self._r = 0.0
 
-        # Set property values
+        # Set properties
         self.mass = mass
         self.Jx = Jx
         self.Jy = Jy
@@ -165,9 +177,9 @@ class UAV():
         print('North: {} meters'.format(self.north.sum()))
         print('East: {} meters'.format(self.east.sum()))
         print('Down: {} meters'.format(self.down.sum()))
-        print('Pitch: {:.4f} radians'.format(self.pitch.sum()))
-        print('Roll: {:.4f} radians'.format(self.roll.sum()))
-        print('Yaw: {:.4f} radians'.format(self.yaw.sum()))
+        print('Pitch: {:.4f} radians'.format(self.phi.sum()))
+        print('Roll: {:.4f} radians'.format(self.theta.sum()))
+        print('Yaw: {:.4f} radians'.format(self.psi.sum()))
         print('-----------------------------')
 
     def plot(self: Self, title: str, scaleFactor: float = 1/6) -> Tuple[Figure, Axes]:
