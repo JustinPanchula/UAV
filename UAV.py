@@ -9,8 +9,8 @@ __doc__ = """This file is used to store all the methods necessary to generate an
 # Imports
 from matplotlib.animation import FuncAnimation
 import numpy as np
-import control as ctrl
 from stl import mesh
+from scipy.integrate import solve_ivp
 
 # Matplotlib imports
 import matplotlib.pyplot as plt
@@ -24,7 +24,17 @@ from typing_extensions import Self
 from typing import Tuple
 
 class _Framing():
-    def _body2inertial(phi: float, theta: float, psi: float) -> np.ndarray:
+    def _vehicle2body(phi: float, theta: float, psi: float) -> np.ndarray:
+        """Generates a matrix to rotate vectors from vehicle frame to body frame.
+
+        Args:
+            phi (float): The roll angle in radians.
+            theta (float): The pitch angle in radians.
+            psi (float): The yaw angle in radians.
+
+        Returns:
+            np.ndarray: The appropriate rotation matrix.
+        """
         R = np.array([[np.cos(theta) * np.cos(psi), np.sin(phi) * np.sin(theta) * np.cos(psi) - np.cos(phi) * np.sin(psi), np.cos(phi) *
                        np.sin(theta) * np.cos(psi) + np.sin(phi) * np.sin(psi)],
                       [np.cos(theta) * np.sin(psi), np.sin(phi) * np.sin(theta) * np.sin(psi) + np.cos(phi) * np.cos(psi), np.cos(phi) *
@@ -33,18 +43,50 @@ class _Framing():
         return R
 
     def _body2stability(alpha: float) -> np.ndarray:
+        """Generates a matrix to rotate vectors from body frame to stability frame.
+
+        Args:
+            alpha (float): The AoA in radians.
+
+        Returns:
+            np.ndarray: The rotation matrix.
+        """
         R = np.array([[np.cos(alpha, 0, np.sin(alpha))],
                       [0, 1, 0],
                       [-np.sin(alpha), 0, np.cos(alpha)]])
         return R
 
     def _stability2wind(beta: float) -> np.ndarray:
+        """Generates a matrix to rotate vectors from stability frame to wind frame.
+
+        Args:
+            beta (float): UNKOWN. FIXME: What is beta?
+
+        Returns:
+            np.ndarray: The rotation matrix.
+        """
         R = np.array([[np.cos(beta), np.sin(beta), 0],
                       [-np.sin(beta), np.cos(beta), 0],
                       [0, 0, 1]])
         return R
 
-class _environment():
+    def _pqr2phithetapsi(phi: float, theta: float, psi: float) -> np.ndarray:
+        """Generates a matrix to rotate vectors from p-q-r to phi-theta-psi
+
+        Args:
+            phi (float): The roll angle in radians.
+            theta (float): The pitch angle in radians.
+            psi (float): The yaw angle in radians.
+
+        Returns:
+            np.ndarray: The appropriate rotation matrix.
+        """
+        R = np.array([[1, np.sin(phi) * np.tan(theta), np.cos(phi) * np.tan(theta)],
+                      [0, np.cos(phi), -np.sin(phi)],
+                      [0, np.sin(phi)/np.cos(theta), np.cos(phi)/np.cos(theta)]]),
+        return R
+
+class _Environment():
     def _wind_gust(phi: float, theta: float, psi: float, Va: float, dt: float) -> np.ndarray:
         return
 
@@ -119,6 +161,42 @@ class Plotting():
         )
         return sliders
 
+    def update_plot(t: float, uav: object, planeAx: Axes, title: str, scaleFactor: float = 1/6) -> Axes:
+        # Update Coordinates
+        uav.uav_dynamics()
+
+        # Add to time
+        uav.t = np.append(uav.t, t)
+
+        # Update mesh
+        uav.Mesh.y -= uav._north * 50
+        uav.north = np.append(uav.north, uav._north)
+        uav.Mesh.x += uav._east * 50
+        uav.east = np.append(uav.east, uav._east)
+        uav.Mesh.z -= uav._down * 50
+        uav.down = np.append(uav.down, uav._down)
+        uav.Mesh.rotate([0.5, 0.0, 0.0], -uav._phi)
+        uav.phi = np.append(uav.phi, uav._phi)
+        uav.Mesh.rotate([0.0, 0.5, 0.0], -uav._theta)
+        uav.theta = np.append(uav.theta, uav._theta)
+        uav.Mesh.rotate([0.0, 0.0, 0.5], uav._psi)
+        uav.psi = np.append(uav.psi, uav._psi)
+
+        # Clear the axis
+        planeAx.clear()
+
+        # Re-add collection
+        collection = mpl.art3d.Poly3DCollection(uav.Mesh.vectors * scaleFactor, edgecolor='black', linewidth=0.2)
+        planeAx.add_collection3d(collection)
+
+        # Auto scale to mesh size
+        scale = uav.Mesh.points.flatten() * scaleFactor
+        planeAx.auto_scale_xyz(scale, scale, scale)
+
+        # Format the plot
+        planeAx.set_title(title)
+        return planeAx
+
 class UAV():
     def __init__(self, meshFile: str, mass: float = 25.0, Jx: float = 0.8244, Jy: float = 1.135, Jz: float = 1.759, Jxz: float = 0.1204) -> None:
         """Instantiates the object and sets values.
@@ -134,7 +212,7 @@ class UAV():
         # Set mesh
         self.Mesh = mesh.Mesh.from_file(meshFile)
 
-        # Set states values
+        # Set state values
         self.north = np.array([0.0], float)     # Position North
         self._north = 0.0
         self.east = np.array([0.0], float)      # Position East
@@ -160,12 +238,37 @@ class UAV():
         self.r = np.array([0.0], float)         # Yaw rate
         self._r = 0.0
 
-        # Set properties
+        # Set intrisic values
         self.mass = mass
         self.Jx = Jx
         self.Jy = Jy
         self.Jz = Jz
         self.Jxz = Jxz
+
+        # Set gamma values
+        self._G0 = Jx * Jz - Jxz ** 2
+        self._G1 = (Jxz * (Jx - Jy + Jz))/self._G0
+        self._G2 = (Jz * (Jz - Jy) + Jxz ** 2)/self._G0
+        self._G3 = Jz/self._G0
+        self._G4 = Jxz/self._G0
+        self._G5 = (Jz - Jx) / Jy
+        self._G6 = Jxz/Jy
+        self._G7 = (Jx * (Jx - Jy) + Jxz ** 2) / self._G0
+        self._G8 = Jx/self._G0
+
+        # Set slider value storage
+        self._fx = 0.0
+        self._fy = 0.0
+        self._fz = 0.0
+        self._l = 0.0
+        self._m = 0.0
+        self._n = 0.0
+
+        # Set simulation parameters
+        self.t = np.array([0.0], float)
+        self.dt = 0.01
+        self.duration = 60
+        return
 
     def _print_coordinates(self: Self) -> None:
         """Print the coordinates of the self object.
@@ -181,9 +284,11 @@ class UAV():
         print('Roll: {:.4f} radians'.format(self.theta.sum()))
         print('Yaw: {:.4f} radians'.format(self.psi.sum()))
         print('-----------------------------')
+        return
 
     def plot(self: Self, title: str, scaleFactor: float = 1/6) -> Tuple[Figure, Axes]:
-        """Plots a mesh
+        """Plots a mesh.
+
         Args:
             self (Self): The UAV.
             title (string): The name of the plot.
@@ -210,7 +315,7 @@ class UAV():
         return fig, ax
 
     def update_uav(self: Self, sliders: np.ndarray) -> None:
-        """Updates the self paramters based on the slider changes
+        """Updates the self paramters based on the slider changes.
 
         Args:
             self (Self): Self object.
@@ -222,13 +327,14 @@ class UAV():
             Args:
                 val (private): Inherent to "Slider.on_changed()" method.
             """
-            self._north = sliders[0].val
-            self._east = sliders[1].val
-            self._down = sliders[2].val
-            self._pitch = sliders[3].val
-            self._roll = sliders[4].val
-            self._yaw = sliders[5].val
+            self._fx= sliders[0].val
+            self._fy = sliders[1].val
+            self._fz = sliders[2].val
+            self._l = sliders[3].val
+            self._m = sliders[4].val
+            self._n = sliders[5].val
             self._print_coordinates()
+            return
 
         sliders[0].on_changed(_update_sliders)
         sliders[1].on_changed(_update_sliders)
@@ -236,6 +342,110 @@ class UAV():
         sliders[3].on_changed(_update_sliders)
         sliders[4].on_changed(_update_sliders)
         sliders[5].on_changed(_update_sliders)
+        return
+
+    def uav_dynamics(self: Self) -> None:
+        def _dynamics(t, y, integrand: float) -> float:
+            """Returns the integrand for "solve_ivp()".
+
+            Args:
+                t (private): Inherent to "solve_ivp()" method.
+                y (private): Inherent to "solve_ivp()" method.
+                integrand (float): The integrand.
+
+            Returns:
+                float: The value of the integrand.
+            """
+            return integrand
+
+        def _lmn2pqr(self: Self) -> None:
+            """Transforms moment inputs to pqr.
+
+            Args:
+                self (Self): The UAV object.
+            """
+            # p
+            p_prime = (self._G1 * self._p * self._q - self._G2 * self._q * self._r) + (self._G3 * self._l + self._G4 * self._n)
+            s = solve_ivp(lambda t, y: _dynamics(t, y, p_prime), [0, self.dt], [self._p], t_eval=np.linspace(0, self.dt, self.duration))
+            ans = s.y[:, -1].T
+            self._p = ans
+
+            # q
+            q_prime = (self._G5 * self._p * self._r - self._G6 * (self._p**2 - self._r**2)) + ((1/self.Jy) * self._m)
+            s = solve_ivp(lambda t, y: _dynamics(t, y, q_prime), [0, self.dt], [self._q], t_eval=np.linspace(0, self.dt, self.duration))
+            ans = s.y[:, -1].T
+            self._p = ans
+            # r
+            r_prime = (self._G7 * self._p * self._q - self._G1 * self._q * self._r) + (self._G4 * self._l + self._G8 * self._n)
+            s = solve_ivp(lambda t, y: _dynamics(t, y, r_prime), [0, self.dt], [self._r], t_eval=np.linspace(0, self.dt, self.duration))
+            ans = s.y[:, -1].T
+            self._r = ans
+            return
+
+        def _pqr2phithetapsi(self: Self, R: np.ndarray) -> None:
+            """Transforms angluar rates into angles.
+
+            Args:
+                self (Self): The UAV object.
+                R (np.ndarray): The rotation matrix.
+            """
+            phithetspsi_prime = np.matmul(R, np.array([[self._p], [self._q], [self._r]]))
+            s = solve_ivp(lambda t, y: _dynamics(t, y, phithetspsi_prime), [0, self.dt], [self._phi, self._theta, self._psi], t_eval=np.linspace(0, self.dt, self.duration))
+            ans = s.y[:, -1].T
+            self._phi, self._theta, self._psi = ans
+            return
+
+        def _f2uvw(self: Self) -> None:
+            """Transforms forces to linear velocities.
+
+            Args:
+                self (Self): The UAV object.
+            """
+            # u
+            u_prime = (self._r * self._v - self._q * self._w) + (self._fx/self.mass)
+            s = solve_ivp(lambda t, y: _dynamics(t, y, u_prime), [0, self.dt], [self._u], t_eval=np.linspace(0, self.dt, self.duration))
+            ans = s.y[:, -1].T
+            self._u = ans
+
+            # v
+            v_prime = (self._p * self._w - self._r * self._u) + (self._fy/self.mass)
+            s = solve_ivp(lambda t, y: _dynamics(t, y, v_prime), [0, self.dt], [self._v], t_eval=np.linspace(0, self.dt, self.duration))
+            ans = s.y[:, -1].T
+            self._v = ans
+
+            # w
+            w_prime = (self._q * self._u - self._p * self._v) + (self._fz/self.mass)
+            s = solve_ivp(lambda t, y: _dynamics(t, y, w_prime), [0, self.dt], [self._w], t_eval=np.linspace(0, self.dt, self.duration))
+            ans = s.y[:, -1].T
+            self._w = ans
+            return
+
+        def _uvw2ned(self: Self, R: np.ndarray) -> None:
+            """Transforms linear velocity to positions
+
+            Args:
+                self (Self): The UAV object
+                R (np.ndarray): The rotation matrix.
+            """
+            ned_prime = np.matmul(R, np.array([[self._u], [self._v], [self._w]]))
+            s = solve_ivp(lambda t, y: _dynamics(t, y, ned_prime), [0, self.dt], [self._north, self._east, self._down], t_eval=np.linspace(0, self.dt, self.duration))
+            ans = s.y[:, -1].T
+            self._north, self._east, self._down = ans
+            return
+
+        # Moments
+        _lmn2pqr(self)
+
+        # pqr
+        _pqr2phithetapsi(self, _Framing._pqr2phithetapsi(self._phi, self._theta, self._psi))
+
+        # Forces
+        _f2uvw(self)
+        print(self._fx)
+
+        # Velocities
+        _uvw2ned(self, _Framing._vehicle2body(self._phi, self._theta, self._psi))
+        return
 
 if __name__ == '__main__':
     meshFile = 'F117.stl'
