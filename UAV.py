@@ -177,18 +177,18 @@ class Plotting():
         uav.Mesh.rotate([0.0, 0.0, 0.5], uav._psi)
 
         # Update state lists
-        uav.north = np.append(uav.north, uav._north)
-        uav.east = np.append(uav.east, uav._east)
-        uav.down = np.append(uav.down, uav._down)
-        uav.u = np.append(uav.u, uav._u)
-        uav.v = np.append(uav.v, uav._v)
-        uav.w = np.append(uav.w, uav._w)
-        uav.phi = np.append(uav.phi, uav._phi)
-        uav.theta = np.append(uav.theta, uav._theta)
-        uav.psi = np.append(uav.psi, uav._psi)
-        uav.p = np.append(uav.p, uav._p)
-        uav.q = np.append(uav.q, uav._q)
-        uav.r = np.append(uav.r, uav._r)
+        uav.north = np.append(uav.north, uav.north[-1] + uav._north)
+        uav.east = np.append(uav.east, uav.east[-1] + uav._east)
+        uav.down = np.append(uav.down, uav.down[-1] + uav._down)
+        uav.u = np.append(uav.u, uav.u[-1] + uav._u)
+        uav.v = np.append(uav.v, uav.v[-1] + uav._v)
+        uav.w = np.append(uav.w, uav.w[-1] + uav._w)
+        uav.phi = np.append(uav.phi, uav.phi[-1] + uav._phi)
+        uav.theta = np.append(uav.theta, uav.theta[-1] + uav._theta)
+        uav.psi = np.append(uav.psi, uav.psi[-1] + uav._psi)
+        uav.p = np.append(uav.p, uav.p[-1] + uav._p)
+        uav.q = np.append(uav.q, uav.q[-1] + uav._q)
+        uav.r = np.append(uav.r, uav.r[-1] + uav._r)
 
         # Clear the axis
         planeAx.clear()
@@ -333,12 +333,13 @@ class UAV():
             self (Self): Self object.
         """
         print('\n---------Coordinates---------')
-        print('North: {} meters'.format(self.north.sum()))
-        print('East: {} meters'.format(self.east.sum()))
-        print('Down: {} meters'.format(self.down.sum()))
-        print('Pitch: {:.4f} radians'.format(self.phi.sum()))
-        print('Roll: {:.4f} radians'.format(self.theta.sum()))
-        print('Yaw: {:.4f} radians'.format(self.psi.sum()))
+        print('Time: {} seconds'.format(self.t[-1]))
+        print('North: {} meters'.format(self.north[-1]))
+        print('East: {} meters'.format(self.east[-1]))
+        print('Down: {} meters'.format(self.down[-1]))
+        print('Roll: {:.4f} radians'.format(self.phi[-1]))
+        print('Pitch: {:.4f} radians'.format(self.theta[-1]))
+        print('Yaw: {:.4f} radians'.format(self.psi[-1]))
         print('-----------------------------')
         return
 
@@ -386,8 +387,8 @@ class UAV():
             self._fx = sliders[0].val
             self._fy = sliders[1].val
             self._fz = sliders[2].val
-            self._l = sliders[4].val
-            self._m = sliders[3].val
+            self._l = sliders[3].val
+            self._m = sliders[4].val
             self._n = sliders[5].val
             self._print_coordinates()
             return
@@ -510,7 +511,7 @@ if __name__ == '__main__':
     fig, ax = uav.plot(title)
     sliders = Plotting.generate_sliders(fig)
     uav.update_uav(sliders)
-    anim = FuncAnimation(fig, Plotting.update_plot, frames=60, blit=False, fargs=[uav, ax, title])
+    anim = FuncAnimation(fig, Plotting.update_plot, frames=300, fargs=[uav, ax, title], repeat=False)
     plt.show()
     Plotting.plot_states(uav)
     anim.save
