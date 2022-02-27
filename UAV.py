@@ -169,8 +169,8 @@ class Plotting():
         uav.t = np.append(uav.t, t)
 
         # Update mesh
-        uav.Mesh.y -= uav._north * 50
-        uav.Mesh.x += uav._east * 50
+        uav.Mesh.x += uav._north * 50
+        uav.Mesh.y += uav._east * 50
         uav.Mesh.z -= uav._down * 50
         uav.Mesh.rotate([0.5, 0.0, 0.0], -uav._phi)
         uav.Mesh.rotate([0.0, 0.5, 0.0], -uav._theta)
