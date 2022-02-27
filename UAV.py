@@ -39,7 +39,7 @@ class _Framing():
                        np.sin(theta) * np.cos(psi) + np.sin(phi) * np.sin(psi)],
                       [np.cos(theta) * np.sin(psi), np.sin(phi) * np.sin(theta) * np.sin(psi) + np.cos(phi) * np.cos(psi), np.cos(phi) *
                        np.sin(theta) * np.sin(psi) - np.sin(phi) * np.cos(psi)],
-                      [-np.sin(theta), np.sin(phi) * np.cos(theta), np.cos(phi) * np.cos(theta)]])
+                      [-np.sin(theta), np.sin(phi) * np.cos(theta), np.cos(phi) * np.cos(theta)]], float)
         return R
 
     def _body2stability(alpha: float) -> np.ndarray:
@@ -53,7 +53,7 @@ class _Framing():
         """
         R = np.array([[np.cos(alpha, 0, np.sin(alpha))],
                       [0, 1, 0],
-                      [-np.sin(alpha), 0, np.cos(alpha)]])
+                      [-np.sin(alpha), 0, np.cos(alpha)]], float)
         return R
 
     def _stability2wind(beta: float) -> np.ndarray:
@@ -67,7 +67,7 @@ class _Framing():
         """
         R = np.array([[np.cos(beta), np.sin(beta), 0],
                       [-np.sin(beta), np.cos(beta), 0],
-                      [0, 0, 1]])
+                      [0, 0, 1]], float)
         return R
 
     def _pqr2phithetapsi(phi: float, theta: float, psi: float) -> np.ndarray:
@@ -170,17 +170,25 @@ class Plotting():
 
         # Update mesh
         uav.Mesh.y -= uav._north * 50
-        uav.north = np.append(uav.north, uav._north)
         uav.Mesh.x += uav._east * 50
-        uav.east = np.append(uav.east, uav._east)
         uav.Mesh.z -= uav._down * 50
-        uav.down = np.append(uav.down, uav._down)
         uav.Mesh.rotate([0.5, 0.0, 0.0], -uav._phi)
-        uav.phi = np.append(uav.phi, uav._phi)
         uav.Mesh.rotate([0.0, 0.5, 0.0], -uav._theta)
-        uav.theta = np.append(uav.theta, uav._theta)
         uav.Mesh.rotate([0.0, 0.0, 0.5], uav._psi)
+
+        # Update state lists
+        uav.north = np.append(uav.north, uav._north)
+        uav.east = np.append(uav.east, uav._east)
+        uav.down = np.append(uav.down, uav._down)
+        uav.u = np.append(uav.u, uav._u)
+        uav.v = np.append(uav.v, uav._v)
+        uav.w = np.append(uav.w, uav._w)
+        uav.phi = np.append(uav.phi, uav._phi)
+        uav.theta = np.append(uav.theta, uav._theta)
         uav.psi = np.append(uav.psi, uav._psi)
+        uav.p = np.append(uav.p, uav._p)
+        uav.q = np.append(uav.q, uav._q)
+        uav.r = np.append(uav.r, uav._r)
 
         # Clear the axis
         planeAx.clear()
@@ -196,6 +204,51 @@ class Plotting():
         # Format the plot
         planeAx.set_title(title)
         return planeAx
+
+    def plot_states(uav: object) -> None:
+        # Create figure
+        fig = plt.figure(figsize=(1.6*6, 0.9*6))
+
+        # Create axs list
+        axs = np.empty(12, Axes)
+
+        # Populate axs list
+        for i in range(1, 13):
+            axs[i-1] = fig.add_subplot(4, 3, i)
+            axs[i-1].set_xlabel('Time (sec)')
+            axs[i-1].set_title(uav.state_names[i-1])
+
+        # Plot each axs
+        axs[0].plot(uav.t, uav.north)
+        axs[0].set_ylabel('(m)')
+        axs[1].plot(uav.t, uav.east)
+        axs[1].set_ylabel('(m)')
+        axs[2].plot(uav.t, uav.down)
+        axs[2].set_ylabel('(m)')
+        axs[3].plot(uav.t, uav.u)
+        axs[3].set_ylabel('(m/s)')
+        axs[4].plot(uav.t, uav.v)
+        axs[4].set_ylabel('(m/s)')
+        axs[5].plot(uav.t, uav.w)
+        axs[5].set_ylabel('(m/s)')
+        axs[6].plot(uav.t, uav.phi)
+        axs[6].set_ylabel('(radians)')
+        axs[7].plot(uav.t, uav.theta)
+        axs[7].set_ylabel('(radians)')
+        axs[8].plot(uav.t, uav.psi)
+        axs[8].set_ylabel('(radians)')
+        axs[9].plot(uav.t, uav.p)
+        axs[9].set_ylabel('(radians/sec)')
+        axs[10].plot(uav.t, uav.q)
+        axs[10].set_ylabel('(radians/sec)')
+        axs[11].plot(uav.t, uav.r)
+        axs[11].set_ylabel('(radians/sec)')
+
+        # Format figure
+        fig.set_tight_layout(True)
+
+        plt.show()
+        return
 
 class UAV():
     def __init__(self, meshFile: str, mass: float = 25.0, Jx: float = 0.8244, Jy: float = 1.135, Jz: float = 1.759, Jxz: float = 0.1204) -> None:
@@ -237,6 +290,9 @@ class UAV():
         self._q = 0.0
         self.r = np.array([0.0], float)         # Yaw rate
         self._r = 0.0
+
+        # List state names
+        self.state_names = np.array(['North', 'East', 'Down', 'u', 'v', 'w', 'Phi', 'Theta', 'Psi', 'l', 'm', 'n'], str)
 
         # Set intrisic values
         self.mass = mass
@@ -456,4 +512,5 @@ if __name__ == '__main__':
     uav.update_uav(sliders)
     anim = FuncAnimation(fig, Plotting.update_plot, frames=60, blit=False, fargs=[uav, ax, title])
     plt.show()
+    Plotting.plot_states(uav)
     anim.save
