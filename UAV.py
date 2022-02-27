@@ -21,7 +21,7 @@ from matplotlib.widgets import Slider
 
 # Typing imports
 from typing_extensions import Self
-from typing import Tuple
+from typing import Any, Tuple
 
 class _Framing():
     def _vehicle2body(phi: float, theta: float, psi: float) -> np.ndarray:
@@ -83,7 +83,7 @@ class _Framing():
         """
         R = np.array([[1, np.sin(phi) * np.tan(theta), np.cos(phi) * np.tan(theta)],
                       [0, np.cos(phi), -np.sin(phi)],
-                      [0, np.sin(phi)/np.cos(theta), np.cos(phi)/np.cos(theta)]]),
+                      [0, np.sin(phi)/np.cos(theta), np.cos(phi)/np.cos(theta)]], float)
         return R
 
 class _Environment():
@@ -327,11 +327,11 @@ class UAV():
             Args:
                 val (private): Inherent to "Slider.on_changed()" method.
             """
-            self._fx= sliders[0].val
+            self._fx = sliders[0].val
             self._fy = sliders[1].val
             self._fz = sliders[2].val
-            self._l = sliders[3].val
-            self._m = sliders[4].val
+            self._l = sliders[4].val
+            self._m = sliders[3].val
             self._n = sliders[5].val
             self._print_coordinates()
             return
@@ -345,16 +345,16 @@ class UAV():
         return
 
     def uav_dynamics(self: Self) -> None:
-        def _dynamics(t, y, integrand: float) -> float:
+        def _dynamics(t, y, integrand: Any) -> Any:
             """Returns the integrand for "solve_ivp()".
 
             Args:
                 t (private): Inherent to "solve_ivp()" method.
                 y (private): Inherent to "solve_ivp()" method.
-                integrand (float): The integrand.
+                integrand (Any): The integrand.
 
             Returns:
-                float: The value of the integrand.
+                Any: The value of the integrand.
             """
             return integrand
 
@@ -368,18 +368,19 @@ class UAV():
             p_prime = (self._G1 * self._p * self._q - self._G2 * self._q * self._r) + (self._G3 * self._l + self._G4 * self._n)
             s = solve_ivp(lambda t, y: _dynamics(t, y, p_prime), [0, self.dt], [self._p], t_eval=np.linspace(0, self.dt, self.duration))
             ans = s.y[:, -1].T
-            self._p = ans
+            self._p, = ans
 
             # q
             q_prime = (self._G5 * self._p * self._r - self._G6 * (self._p**2 - self._r**2)) + ((1/self.Jy) * self._m)
             s = solve_ivp(lambda t, y: _dynamics(t, y, q_prime), [0, self.dt], [self._q], t_eval=np.linspace(0, self.dt, self.duration))
             ans = s.y[:, -1].T
-            self._p = ans
+            self._q, = ans
+
             # r
             r_prime = (self._G7 * self._p * self._q - self._G1 * self._q * self._r) + (self._G4 * self._l + self._G8 * self._n)
             s = solve_ivp(lambda t, y: _dynamics(t, y, r_prime), [0, self.dt], [self._r], t_eval=np.linspace(0, self.dt, self.duration))
             ans = s.y[:, -1].T
-            self._r = ans
+            self._r, = ans
             return
 
         def _pqr2phithetapsi(self: Self, R: np.ndarray) -> None:
@@ -389,8 +390,8 @@ class UAV():
                 self (Self): The UAV object.
                 R (np.ndarray): The rotation matrix.
             """
-            phithetspsi_prime = np.matmul(R, np.array([[self._p], [self._q], [self._r]]))
-            s = solve_ivp(lambda t, y: _dynamics(t, y, phithetspsi_prime), [0, self.dt], [self._phi, self._theta, self._psi], t_eval=np.linspace(0, self.dt, self.duration))
+            phithetapsi_prime = np.dot(R, np.array([self._p, self._q, self._r]))
+            s = solve_ivp(lambda t, y: _dynamics(t, y, phithetapsi_prime), [0, self.dt], [self._p, self._q, self._r], t_eval=np.linspace(0, self.dt, self.duration))
             ans = s.y[:, -1].T
             self._phi, self._theta, self._psi = ans
             return
@@ -405,19 +406,19 @@ class UAV():
             u_prime = (self._r * self._v - self._q * self._w) + (self._fx/self.mass)
             s = solve_ivp(lambda t, y: _dynamics(t, y, u_prime), [0, self.dt], [self._u], t_eval=np.linspace(0, self.dt, self.duration))
             ans = s.y[:, -1].T
-            self._u = ans
+            self._u, = ans
 
             # v
             v_prime = (self._p * self._w - self._r * self._u) + (self._fy/self.mass)
             s = solve_ivp(lambda t, y: _dynamics(t, y, v_prime), [0, self.dt], [self._v], t_eval=np.linspace(0, self.dt, self.duration))
             ans = s.y[:, -1].T
-            self._v = ans
+            self._v, = ans
 
             # w
             w_prime = (self._q * self._u - self._p * self._v) + (self._fz/self.mass)
             s = solve_ivp(lambda t, y: _dynamics(t, y, w_prime), [0, self.dt], [self._w], t_eval=np.linspace(0, self.dt, self.duration))
             ans = s.y[:, -1].T
-            self._w = ans
+            self._w, = ans
             return
 
         def _uvw2ned(self: Self, R: np.ndarray) -> None:
@@ -427,7 +428,7 @@ class UAV():
                 self (Self): The UAV object
                 R (np.ndarray): The rotation matrix.
             """
-            ned_prime = np.matmul(R, np.array([[self._u], [self._v], [self._w]]))
+            ned_prime = np.dot(R, np.array([self._u, self._v, self._w]))
             s = solve_ivp(lambda t, y: _dynamics(t, y, ned_prime), [0, self.dt], [self._north, self._east, self._down], t_eval=np.linspace(0, self.dt, self.duration))
             ans = s.y[:, -1].T
             self._north, self._east, self._down = ans
@@ -441,7 +442,6 @@ class UAV():
 
         # Forces
         _f2uvw(self)
-        print(self._fx)
 
         # Velocities
         _uvw2ned(self, _Framing._vehicle2body(self._phi, self._theta, self._psi))
