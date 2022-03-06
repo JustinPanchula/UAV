@@ -11,6 +11,8 @@ from matplotlib.animation import FuncAnimation
 import numpy as np
 from stl import mesh
 from scipy.integrate import solve_ivp
+from control.matlab import lsim
+import control as ctrl
 
 # Matplotlib imports
 import matplotlib.pyplot as plt
@@ -21,7 +23,7 @@ from matplotlib.widgets import Slider
 
 # Typing imports
 from typing_extensions import Self
-from typing import Any, Tuple
+from typing import Any, Callable, Tuple
 
 class _Framing():
     def _vehicle2body(phi: float, theta: float, psi: float) -> np.ndarray:
@@ -87,8 +89,71 @@ class _Framing():
         return R
 
 class _Environment():
-    def _wind_gust(phi: float, theta: float, psi: float, Va: float, dt: float) -> np.ndarray:
-        return
+    def _wind(phi: float, theta: float, psi: float, Va: float, dt: float) -> np.ndarray:
+        """Generates wind gusts
+
+        Args:
+            phi (float): The pitch angle in radians.
+            theta (float): The roll angle in radians.
+            psi (float): The yaw angle in radians.
+            Va (float): The wind speed.
+            dt (float): The time step.
+
+        Returns:
+            np.ndarray: The wind vector in body frame.
+        """
+        wn = 0
+        we = 0
+        wd = 0
+
+        lu = 200
+        lv = 200
+        lw = 50
+
+        sigma_u = 1.06
+        sigma_v = sigma_u
+        sigma_w = 1.4
+
+        au = sigma_u * np.sqrt((2 * Va)/lu)
+        av = sigma_v * np.sqrt((3 * Va)/lv)
+        aw = sigma_w * np.sqrt((3 * Va)/lw)
+
+        # Transfer functions
+        num_u = [0, au]
+        den_u = [1, Va/lu]
+        sys_u = ctrl.tf(num_u, den_u)
+
+        num_v = [av, (av * Va)/(np.sqrt(3) * lv)]
+        den_v = [1, (2 * Va)/lv, (Va/lv)**2]
+        sys_v = ctrl.tf(num_v, den_v)
+
+        num_w = [aw, (aw * Va)/(np.sqrt(3) *lv)]
+        den_w = [1, (2 * Va)/lw, (Va/lw)**2]
+        sys_w = ctrl.tf(num_w, den_w)
+
+        # Noise generation
+        T = [0, dt]
+        X0 = 0.0
+        white_noise_u = np.random.normal(0, 1, 1)
+        white_noise_v = np.random.normal(0, 1, 1)
+        white_noise_w = np.random.normal(0, 1, 1)
+
+        y_u, T, x_u = lsim(sys_u, white_noise_u[0], T, X0)
+        y_v, T, x_v = lsim(sys_v, white_noise_v[0], T, X0)
+        y_w, T, x_w = lsim(sys_w, white_noise_w[0], T, X0)
+
+        # Gust components
+        wg_u = y_u[1]
+        wg_v = y_v[1]
+        wg_w = y_w[1]
+
+        Ws_v = np.array([wn, we, wd])
+        R = _Framing._vehicle2body(phi, theta, psi)
+        Ws_b = np.transpose(np.matmul(np.transpose(R), np.transpose(Ws_v)))
+        Wg_b = np.array([wg_u, wg_v, wg_w])
+        Vw = Wg_b + Ws_b
+
+        return Vw
 
 class Plotting():
     def generate_sliders(fig: Figure) -> np.ndarray:
@@ -100,63 +165,43 @@ class Plotting():
         Returns:
             np.ndarray: The sliders as an ordered numpy array.
         """
-        sliders = np.empty(6, dtype=Slider)
+        sliders = np.empty(4, dtype=Slider)
 
-        # Fx
+        # Thrust
         sliders[0] = Slider(
-            ax=fig.add_axes([0.05, 0.25, 0.0225, 0.63]),  # Left, Bottom, Width, Height
-            label='Fx',
-            valmin=-50,
-            valmax=50,
-            valstep=1,
-            valinit=0,
-            orientation='vertical'
-        )
-        # Fy
-        sliders[1] = Slider(
             ax=fig.add_axes([0.11, 0.25, 0.0225, 0.63]),
-            label='Fy',
-            valmin=-50,
-            valmax=50,
-            valstep=1,
+            label='Thrust',
+            valmin=-5,
+            valmax=5,
+            valstep=0.1,
             valinit=0,
             orientation='vertical'
         )
-        # Fz
-        sliders[2] = Slider(
-            ax=fig.add_axes([0.17, 0.25, 0.0225, 0.63]),
-            label='Fz',
-            valmin=-50,
-            valmax=50,
-            valstep=1,
-            valinit=0,
-            orientation='vertical'
-        )
-        # Mx
-        sliders[3] = Slider(
+        # Aileron
+        sliders[1] = Slider(
             ax=fig.add_axes([0.25, 0.08, 0.65, 0.03]),
-            label='Mx',
-            valmin=-50,
-            valmax=50,
-            valstep=1,
+            label='Aileron',
+            valmin=-5,
+            valmax=5,
+            valstep=0.1,
             valinit=0
         )
-        # My
-        sliders[4] = Slider(
+        # Elevator
+        sliders[2] = Slider(
             ax=fig.add_axes([0.25, 0.05, 0.65, 0.03]),
-            label='My',
-            valmin=-50,
-            valmax=50,
-            valstep=1,
+            label='Elevator',
+            valmin=-5,
+            valmax=5,
+            valstep=0.1,
             valinit=0
         )
-        # Mz
-        sliders[5] = Slider(
+        # Rudder
+        sliders[3] = Slider(
             ax=fig.add_axes([0.25, 0.02, 0.65, 0.03]),
-            label='Mz',
-            valmin=-50,
-            valmax=50,
-            valstep=1,
+            label='Rudder',
+            valmin=-5,
+            valmax=5,
+            valstep=0.1,
             valinit=0
         )
         return sliders
@@ -166,39 +211,39 @@ class Plotting():
         uav.uav_dynamics()
 
         # Add to time
-        uav.t = np.append(uav.t, t)
+        uav._track_t = np.append(uav._track_t, t)
 
         # Update mesh
-        uav.Mesh.x += uav._north * 50
-        uav.Mesh.y += uav._east * 50
-        uav.Mesh.z -= uav._down * 50
-        uav.Mesh.rotate([0.5, 0.0, 0.0], -uav._phi)
-        uav.Mesh.rotate([0.0, 0.5, 0.0], -uav._theta)
-        uav.Mesh.rotate([0.0, 0.0, 0.5], uav._psi)
+        uav._Mesh.x += uav._north
+        uav._Mesh.y += uav._east
+        uav._Mesh.z -= uav._down
+        uav._Mesh.rotate([0.5, 0.0, 0.0], -uav._phi)
+        uav._Mesh.rotate([0.0, 0.5, 0.0], -uav._theta)
+        uav._Mesh.rotate([0.0, 0.0, 0.5], uav._psi)
 
         # Update state lists
-        uav.north = np.append(uav.north, uav.north[-1] + uav._north)
-        uav.east = np.append(uav.east, uav.east[-1] + uav._east)
-        uav.down = np.append(uav.down, uav.down[-1] + uav._down)
-        uav.u = np.append(uav.u, uav.u[-1] + uav._u)
-        uav.v = np.append(uav.v, uav.v[-1] + uav._v)
-        uav.w = np.append(uav.w, uav.w[-1] + uav._w)
-        uav.phi = np.append(uav.phi, uav.phi[-1] + uav._phi)
-        uav.theta = np.append(uav.theta, uav.theta[-1] + uav._theta)
-        uav.psi = np.append(uav.psi, uav.psi[-1] + uav._psi)
-        uav.p = np.append(uav.p, uav.p[-1] + uav._p)
-        uav.q = np.append(uav.q, uav.q[-1] + uav._q)
-        uav.r = np.append(uav.r, uav.r[-1] + uav._r)
+        uav._track_north = np.append(uav._track_north, uav._track_north[-1] + uav._north)
+        uav._track_east = np.append(uav._track_east, uav._track_east[-1] + uav._east)
+        uav._track_down = np.append(uav._track_down, uav._track_down[-1] + uav._down)
+        uav._track_u = np.append(uav._track_u, uav._track_u[-1] + uav._u)
+        uav._track_v = np.append(uav._track_v, uav._track_v[-1] + uav._v)
+        uav._track_w = np.append(uav._track_w, uav._track_w[-1] + uav._w)
+        uav._track_phi = np.append(uav._track_phi, uav._track_phi[-1] + uav._phi)
+        uav._track_theta = np.append(uav._track_theta, uav._track_theta[-1] + uav._theta)
+        uav._track_psi = np.append(uav._track_psi, uav._track_psi[-1] + uav._psi)
+        uav._track_p = np.append(uav._track_p, uav._track_p[-1] + uav._p)
+        uav._track_q = np.append(uav._track_q, uav._track_q[-1] + uav._q)
+        uav._track_r = np.append(uav._track_r, uav._track_r[-1] + uav._r)
 
         # Clear the axis
         planeAx.clear()
 
         # Re-add collection
-        collection = mpl.art3d.Poly3DCollection(uav.Mesh.vectors * scaleFactor, edgecolor='black', linewidth=0.2)
+        collection = mpl.art3d.Poly3DCollection(uav._Mesh.vectors * scaleFactor, edgecolor='black', linewidth=0.2)
         planeAx.add_collection3d(collection)
 
         # Auto scale to mesh size
-        scale = uav.Mesh.points.flatten() * scaleFactor
+        scale = uav._Mesh.points.flatten() * scaleFactor
         planeAx.auto_scale_xyz(scale, scale, scale)
 
         # Format the plot
@@ -216,33 +261,21 @@ class Plotting():
         for i in range(1, 13):
             axs[i-1] = fig.add_subplot(4, 3, i)
             axs[i-1].set_xlabel('Time (sec)')
-            axs[i-1].set_title(uav.state_names[i-1])
+            axs[i-1].set_title(uav._state_names[i-1])
 
         # Plot each axs
-        axs[0].plot(uav.t, uav.north)
-        axs[0].set_ylabel('(m)')
-        axs[1].plot(uav.t, uav.east)
-        axs[1].set_ylabel('(m)')
-        axs[2].plot(uav.t, uav.down)
-        axs[2].set_ylabel('(m)')
-        axs[3].plot(uav.t, uav.u)
-        axs[3].set_ylabel('(m/s)')
-        axs[4].plot(uav.t, uav.v)
-        axs[4].set_ylabel('(m/s)')
-        axs[5].plot(uav.t, uav.w)
-        axs[5].set_ylabel('(m/s)')
-        axs[6].plot(uav.t, uav.phi)
-        axs[6].set_ylabel('(radians)')
-        axs[7].plot(uav.t, uav.theta)
-        axs[7].set_ylabel('(radians)')
-        axs[8].plot(uav.t, uav.psi)
-        axs[8].set_ylabel('(radians)')
-        axs[9].plot(uav.t, uav.p)
-        axs[9].set_ylabel('(radians/sec)')
-        axs[10].plot(uav.t, uav.q)
-        axs[10].set_ylabel('(radians/sec)')
-        axs[11].plot(uav.t, uav.r)
-        axs[11].set_ylabel('(radians/sec)')
+        axs[0].plot(uav._track_t, uav._track_north); axs[0].set_ylabel('(m)')
+        axs[1].plot(uav._track_t, uav._track_east); axs[1].set_ylabel('(m)')
+        axs[2].plot(uav._track_t, uav._track_down); axs[2].set_ylabel('(m)')
+        axs[3].plot(uav._track_t, uav._track_u); axs[3].set_ylabel('(m/s)')
+        axs[4].plot(uav._track_t, uav._track_v); axs[4].set_ylabel('(m/s)')
+        axs[5].plot(uav._track_t, uav._track_w); axs[5].set_ylabel('(m/s)')
+        axs[6].plot(uav._track_t, uav._track_phi); axs[6].set_ylabel('(radians)')
+        axs[7].plot(uav._track_t, uav._track_theta); axs[7].set_ylabel('(radians)')
+        axs[8].plot(uav._track_t, uav._track_psi); axs[8].set_ylabel('(radians)')
+        axs[9].plot(uav._track_t, uav._track_p); axs[9].set_ylabel('(radians/sec)')
+        axs[10].plot(uav._track_t, uav._track_q); axs[10].set_ylabel('(radians/sec)')
+        axs[11].plot(uav._track_t, uav._track_r); axs[11].set_ylabel('(radians/sec)')
 
         # Format figure
         fig.set_tight_layout(True)
@@ -251,68 +284,48 @@ class Plotting():
         return
 
 class UAV():
-    def __init__(self, meshFile: str, mass: float = 25.0, Jx: float = 0.8244, Jy: float = 1.135, Jz: float = 1.759, Jxz: float = 0.1204) -> None:
+    def __init__(self, meshFile: str) -> None:
         """Instantiates the object and sets values.
-
-        Args:
-            meshFile (str): The .stl file of the UAV.
-            mass (float): The mass of the UAV. Defaults to 25 kg.
-            Jx (float): The moment of inertia about the x-axis. Defaults to 0.8244 __
-            Jy (float): The moment of inertia about the y-axis. Defaults to 1.1350 __
-            Jz (float): The moment of inertia about the z-axis. Defaults to 1.7590 __
-            Jxz (float): The product of inertia about the x-, and z-axis: this is the coupling between roll and yaw. Defaults to 0.1204
         """
         # Set mesh
-        self.Mesh = mesh.Mesh.from_file(meshFile)
+        self._Mesh = mesh.Mesh.from_file(meshFile)
 
         # Set state values
-        self.north = np.array([0.0], float)     # Position North
+        self._track_north = np.array([0.0], float)     # Position North
         self._north = 0.0
-        self.east = np.array([0.0], float)      # Position East
+        self._track_east = np.array([0.0], float)      # Position East
         self._east = 0.0
-        self.down = np.array([0.0], float)      # Position South
+        self._track_down = np.array([0.0], float)      # Position South
         self._down = 0.0
-        self.u = np.array([0.0], float)         # Velocity along i
+        self._track_u = np.array([0.0], float)         # Velocity along i
         self._u = 0.0
-        self.v = np.array([0.0], float)         # Velocity along j
+        self._track_v = np.array([0.0], float)         # Velocity along j
         self._v = 0.0
-        self.w = np.array([0.0], float)         # Velocity along k
+        self._track_w = np.array([0.0], float)         # Velocity along k
         self._w = 0.0
-        self.phi = np.array([0.0], float)       # Roll
+        self._track_phi = np.array([0.0], float)       # Roll
         self._phi = 0.0
-        self.theta = np.array([0.0], float)     # Pitch
+        self._track_theta = np.array([0.0], float)     # Pitch
         self._theta = 0.0
-        self.psi = np.array([0.0], float)       # Yaw
+        self._track_psi = np.array([0.0], float)       # Yaw
         self._psi = 0.0
-        self.p = np.array([0.0], float)         # Roll rate
+        self._track_p = np.array([0.0], float)         # Roll rate
         self._p = 0.0
-        self.q = np.array([0.0], float)         # Pitch rate
+        self._track_q = np.array([0.0], float)         # Pitch rate
         self._q = 0.0
-        self.r = np.array([0.0], float)         # Yaw rate
+        self._track_r = np.array([0.0], float)         # Yaw rate
         self._r = 0.0
 
         # List state names
-        self.state_names = np.array(['North', 'East', 'Down', 'u', 'v', 'w', 'Phi', 'Theta', 'Psi', 'l', 'm', 'n'], str)
+        self._state_names = np.array(['North', 'East', 'Down', 'u', 'v', 'w', 'Phi', 'Theta', 'Psi', 'l', 'm', 'n'], str)
 
-        # Set intrisic values
-        self.mass = mass
-        self.Jx = Jx
-        self.Jy = Jy
-        self.Jz = Jz
-        self.Jxz = Jxz
+        # Set control surfaces
+        self._thrust = 0.0
+        self._aileron = 0.0
+        self._elevator = 0.0
+        self._rudder = 0.0
 
-        # Set gamma values
-        self._G0 = Jx * Jz - Jxz ** 2
-        self._G1 = (Jxz * (Jx - Jy + Jz))/self._G0
-        self._G2 = (Jz * (Jz - Jy) + Jxz ** 2)/self._G0
-        self._G3 = Jz/self._G0
-        self._G4 = Jxz/self._G0
-        self._G5 = (Jz - Jx) / Jy
-        self._G6 = Jxz/Jy
-        self._G7 = (Jx * (Jx - Jy) + Jxz ** 2) / self._G0
-        self._G8 = Jx/self._G0
-
-        # Set slider value storage
+        # Set control surface forces
         self._fx = 0.0
         self._fy = 0.0
         self._fz = 0.0
@@ -320,11 +333,104 @@ class UAV():
         self._m = 0.0
         self._n = 0.0
 
+        # Set aerodynamics parameters
+        self._S_wing = 0.55
+        self._b = 2.90
+        self._c = 0.19
+        self._S_prop = 0.2027
+        self._c_prop = 1
+        self._k_motor = 80
+        self._rho = 1.2682
+        self._e = 0.9
+        self._ar = self._b**2/self._S_wing
+
+        # Set aerodynamic coefficients
+        self._coeffs = {
+            'CL0': 0.23,
+            'CD0': 0.043,
+            'Cm0': 0.0135,
+            'CLalpha': 5.61,
+            'CDalpha': 0.030,
+            'Cmalpha': -2.74,
+            'CLq': 7.95,
+            'CDq': 0.0,
+            'Cmq': -38.21,
+            'CLdeltae': 0.13,
+            'CDdeltae': 0.0135,
+            'Cmdeltae': -0.99,
+            'Cdp': 0.0,
+            'Cy0': 0.0,
+            'Cl0': 0.0,
+            'Cn0': 0.0,
+            'Cybeta': -0.98,
+            'Clbeta': -0.13,
+            'Cnbeta': 0.073,
+            'Cyp': 0.0,
+            'Clp': -0.51,
+            'Cnp': -0.069,
+            'Cyr': 0.0,
+            'Clr': 0.25,
+            'Cnr': -0.095,
+            'Cydeltaa': 0.075,
+            'Cldeltaa': 0.17,
+            'Cndeltaa': -0.011,
+            'Cydeltar': 0.19,
+            'Cldeltar': 0.0024,
+            'Cndeltar': -0.069
+        }
+
+        # Set wind state values
+        self._airspeed = 30
+        self._alpha = 0.0
+        self._beta = 0.0
+
+        # Set additional parameters
+        self._M = 50.0
+        self._alpha0 = 0.47
+        self._epsilon = 0.16
+
+        # Set inertial parameters
+        self._mass = 13.0
+        self._g = 9.806650
+        self._Jx = 0.8244
+        self._Jy = 1.135
+        self._Jz = 1.759
+        self._Jxz = 0.1204
+
+        # Set gamma values
+        self._G0 = self._Jx * self._Jz - self._Jxz ** 2
+        self._G1 = (self._Jxz * (self._Jx - self._Jy + self._Jz))/self._G0
+        self._G2 = (self._Jx * (self._Jz - self._Jy) + self._Jxz ** 2)/self._G0
+        self._G3 = self._Jz/self._G0
+        self._G4 = self._Jxz/self._G0
+        self._G5 = (self._Jz - self._Jx) / self._Jy
+        self._G6 = self._Jxz/self._Jy
+        self._G7 = (self._Jx * (self._Jx - self._Jy) + self._Jxz ** 2) / self._G0
+        self._G8 = self._Jx/self._G0
+
         # Set simulation parameters
-        self.t = np.array([0.0], float)
-        self.dt = 0.01
-        self.duration = 60
+        self._track_t = np.array([0.0], float)
+        self._dt = 0.01
+        self._duration = 60
         return
+
+    # # Getters, setters, and deleters
+    # @property
+    # def north(self: Self):
+    #     return self._track_north[-1]
+
+    # @north.setter
+    # def north(self: Self, val: float):
+    #     if isinstance(val, float):
+    #         self._track_north = np.append(self._track_north, val)
+    #         self._north = val
+    #     else:
+    #         print('Value must be a float')
+
+    # @north.deleter
+    # def north(self: Self):
+    #     del self._track_north
+    #     del self._north
 
     def _print_coordinates(self: Self) -> None:
         """Print the coordinates of the self object.
@@ -333,13 +439,13 @@ class UAV():
             self (Self): Self object.
         """
         print('\n---------Coordinates---------')
-        print('Time: {} seconds'.format(self.t[-1]))
-        print('North: {} meters'.format(self.north[-1]))
-        print('East: {} meters'.format(self.east[-1]))
-        print('Down: {} meters'.format(self.down[-1]))
-        print('Roll: {:.4f} radians'.format(self.phi[-1]))
-        print('Pitch: {:.4f} radians'.format(self.theta[-1]))
-        print('Yaw: {:.4f} radians'.format(self.psi[-1]))
+        print(f'Time: {self._track_t[-1]} seconds')
+        print(f'North: {self._track_north[-1]} meters')
+        print(f'East: {self._track_east[-1]} meters')
+        print(f'Down: {self._track_down[-1]} meters')
+        print(f'Roll: {self._track_phi[-1]:.4f} radians')
+        print(f'Pitch: {self._track_theta[-1]:.4f} radians')
+        print(f'Yaw: {self._track_psi[-1]:.4f} radians')
         print('-----------------------------')
         return
 
@@ -359,11 +465,11 @@ class UAV():
         ax = fig.add_subplot(1, 1, 1, projection='3d')
 
         # Add mesh to plot
-        collection = mpl.art3d.Poly3DCollection(self.Mesh.vectors * scaleFactor, edgecolor='black', linewidth=0.2)
+        collection = mpl.art3d.Poly3DCollection(self._Mesh.vectors * scaleFactor, edgecolor='black', linewidth=0.2)
         ax.add_collection3d(collection)
 
         # Auto scale to mesh size
-        scale = self.Mesh.points.flatten() * scaleFactor
+        scale = self._Mesh.points.flatten() * scaleFactor
         ax.auto_scale_xyz(scale, scale, scale)
 
         # Format the plot
@@ -375,7 +481,7 @@ class UAV():
         """Updates the self paramters based on the slider changes.
 
         Args:
-            self (Self): Self object.
+            self (Self): The UAV Object.
             sliders (np.ndarray): The numpy array of sliders.
         """
         def _update_sliders(val) -> None:
@@ -384,12 +490,10 @@ class UAV():
             Args:
                 val (private): Inherent to "Slider.on_changed()" method.
             """
-            self._fx = sliders[0].val
-            self._fy = sliders[1].val
-            self._fz = sliders[2].val
-            self._l = sliders[3].val
-            self._m = sliders[4].val
-            self._n = sliders[5].val
+            self._thrust = sliders[0].val
+            self._aileron = sliders[1].val
+            self._elevator = sliders[2].val
+            self._rudder = sliders[3].val
             self._print_coordinates()
             return
 
@@ -397,11 +501,26 @@ class UAV():
         sliders[1].on_changed(_update_sliders)
         sliders[2].on_changed(_update_sliders)
         sliders[3].on_changed(_update_sliders)
-        sliders[4].on_changed(_update_sliders)
-        sliders[5].on_changed(_update_sliders)
         return
 
     def uav_dynamics(self: Self) -> None:
+        def _wind(self: Self) -> None:
+            """Generates wind and constantly updates according to the Dryden Gust Model from "_Environment"
+
+            Args:
+                self (Self): The UAV object.
+            """
+            Vw = _Environment._wind(self._phi, self._theta, self._phi, self._airspeed, self._dt)
+            ur = self._u - Vw[0]
+            vr = self._v - Vw[1]
+            wr = self._w - Vw[2]
+
+            self._airspeed = np.sqrt(ur**2 + vr**2 + wr**2)
+            self._alpha = np.arctan(wr/ur)
+            self._beta = np.arcsin(vr/self._airspeed)
+
+            return
+
         def _dynamics(t, y, integrand: Any) -> Any:
             """Returns the integrand for "solve_ivp()".
 
@@ -415,27 +534,73 @@ class UAV():
             """
             return integrand
 
-        def _lmn2pqr(self: Self) -> None:
-            """Transforms moment inputs to pqr.
+        def _lmn(self: Self) -> None:
+            """Calculates the l, m, and n moments based on inputs from the ailerons (p), elevators (q), and rudder (r).
 
             Args:
                 self (Self): The UAV object.
             """
+            # l moment
+            self._l = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._b * (self._coeffs['Cl0'] + (self._coeffs['Clbeta'] * self._beta) + (self._coeffs['Clp'] * (self._b/(2 * self._airspeed)) * self._p) + (self._coeffs['Clr'] * (self._b/(2 * self._airspeed)) * self._r) + (self._coeffs['Cldeltaa'] * self._aileron) + (self._coeffs['Cldeltar'] * self._rudder))) + (0)
+
+            # m moment
+            self._m = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._c * (self._coeffs['Cm0'] + (self._coeffs['Cmalpha'] * self._alpha) + (self._coeffs['Cmq'] * (self._c/(2 * self._airspeed)) * self._q) + (self._coeffs['Cmdeltae'] * self._elevator))) + (0)
+
+            # n moment
+            self._n = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._b * (self._coeffs['Cn0'] + (self._coeffs['Cnbeta'] * self._beta) + (self._coeffs['Cnp'] * (self._b/(2 * self._airspeed)) * self._p) + (self._coeffs['Cnr'] * (self._b/(2 * self._airspeed)) * self._r) + (self._coeffs['Cndeltaa'] * self._aileron) + (self._coeffs['Cndeltar'] * self._rudder))) + (0)
+            return
+
+        def _fxfyfz(self: Self) -> None:
+            """Calculates Fx, Fy, and Fz based on the propeller thrust input
+
+            Args:
+                self (Self): The UAV object.
+            """
+            # Calculate sigma, Cl, and Cd
+            sigma = (1 + np.exp(-self._M * (self._alpha - self._alpha0)) + np.exp(self._M * (self._alpha - self._alpha0)))/((1 + np.exp(-self._M * (self._alpha - self._alpha0))) * (1 + np.exp(self._M * (self._alpha - self._alpha0))))
+            Cl = (1 - sigma) * (self._coeffs['CL0'] + ((self._coeffs['CLalpha']) * self._alpha)) + (sigma * (2 * np.sign(self._alpha) * np.sin(self._alpha)**2 * np.cos(self._alpha)))
+            Cd = self._coeffs['Cdp'] + ((self._coeffs['CL0'] + (self._coeffs['CLalpha'] * self._alpha))**2/(np.pi * self._e * self._ar))
+
+            # Calculate Cx, Cxq, Cxde, Cz, Czq, and Czqe
+            Cx = -Cd * np.cos(self._alpha) + Cl * np.sin(self._alpha)
+            Cxq = -self._coeffs['CDq'] * np.cos(self._alpha) + self._coeffs['CLq'] * np.sin(self._alpha)
+            Cxde = -self._coeffs['CDdeltae'] * np.cos(self._alpha) + self._coeffs['CLdeltae'] * np.sin(self._alpha)
+            Cz = -Cd * np.sin(self._alpha) - Cl * np.cos(self._alpha)
+            Czq = -self._coeffs['CDq'] * np.sin(self._alpha) - self._coeffs['CLq'] * np.cos(self._alpha)
+            Czde = -self._coeffs['CDdeltae'] * np.sin(self._alpha) - self._coeffs['CLdeltae'] * np.cos(self._alpha)
+
+            self._fx = (-self._mass * self._g * np.sin(self._theta)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (Cx + (Cxq * (self._c/(2 * self._airspeed) * self._q)) + (Cxde * self._elevator))) + ((0.5 * self._p * self._S_prop * self._c_prop) * ((self._k_motor * self._thrust)**2 - self._airspeed**2))
+
+            self._fy = (self._mass * self._g * np.cos(self._theta) * np.sin(self._phi)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._coeffs['Cy0'] + (self._coeffs['Cybeta'] * self._beta) + (self._coeffs['Cyp'] * (self._b/(2 * self._airspeed)) * self._p) * (self._coeffs['Cyr'] * (self._b/(2 * self._airspeed)) * self._r) + (self._coeffs['Cydeltaa'] * self._aileron) + (self._coeffs['Cydeltar'] * self._rudder))) + (0)
+
+            self._fz = (self._mass * self._g * np.cos(self._theta) * np.cos(self._phi)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (Cz + (Czq * (self._c/(2 * self._airspeed)) * self._q) + (Czde * self._elevator))) + (0)
+            return
+
+        def _lmn2pqr(self: Self, lmn: Callable) -> None:
+            """Transforms moments into angular rates.
+
+            Args:
+                self (Self): The UAV object.
+                lmn (Callable): The function to calculate l, m, and n.
+            """
+
+            lmn(self)
+
             # p
             p_prime = (self._G1 * self._p * self._q - self._G2 * self._q * self._r) + (self._G3 * self._l + self._G4 * self._n)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, p_prime), [0, self.dt], [self._p], t_eval=np.linspace(0, self.dt, self.duration))
+            s = solve_ivp(lambda t, y: _dynamics(t, y, p_prime), [0, self._dt], [self._p], t_eval=np.linspace(0, self._dt, self._duration))
             ans = s.y[:, -1].T
             self._p, = ans
 
             # q
-            q_prime = (self._G5 * self._p * self._r - self._G6 * (self._p**2 - self._r**2)) + ((1/self.Jy) * self._m)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, q_prime), [0, self.dt], [self._q], t_eval=np.linspace(0, self.dt, self.duration))
+            q_prime = (self._G5 * self._p * self._r - self._G6 * (self._p**2 - self._r**2)) + ((1/self._Jy) * self._m)
+            s = solve_ivp(lambda t, y: _dynamics(t, y, q_prime), [0, self._dt], [self._q], t_eval=np.linspace(0, self._dt, self._duration))
             ans = s.y[:, -1].T
             self._q, = ans
 
             # r
             r_prime = (self._G7 * self._p * self._q - self._G1 * self._q * self._r) + (self._G4 * self._l + self._G8 * self._n)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, r_prime), [0, self.dt], [self._r], t_eval=np.linspace(0, self.dt, self.duration))
+            s = solve_ivp(lambda t, y: _dynamics(t, y, r_prime), [0, self._dt], [self._r], t_eval=np.linspace(0, self._dt, self._duration))
             ans = s.y[:, -1].T
             self._r, = ans
             return
@@ -448,32 +613,36 @@ class UAV():
                 R (np.ndarray): The rotation matrix.
             """
             phithetapsi_prime = np.dot(R, np.array([self._p, self._q, self._r]))
-            s = solve_ivp(lambda t, y: _dynamics(t, y, phithetapsi_prime), [0, self.dt], [self._p, self._q, self._r], t_eval=np.linspace(0, self.dt, self.duration))
+            s = solve_ivp(lambda t, y: _dynamics(t, y, phithetapsi_prime), [0, self._dt], [self._p, self._q, self._r], t_eval=np.linspace(0, self._dt, self._duration))
             ans = s.y[:, -1].T
             self._phi, self._theta, self._psi = ans
             return
 
-        def _f2uvw(self: Self) -> None:
+        def _fxfyfz2uvw(self: Self, fxfyfz: Callable) -> None:
             """Transforms forces to linear velocities.
 
             Args:
                 self (Self): The UAV object.
+                fxfyfz (Callable): The function to calculate fx, fy, and fz.
             """
+
+            fxfyfz(self)
+
             # u
-            u_prime = (self._r * self._v - self._q * self._w) + (self._fx/self.mass)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, u_prime), [0, self.dt], [self._u], t_eval=np.linspace(0, self.dt, self.duration))
+            u_prime = (self._r * self._v - self._q * self._w) + (self._fx/self._mass)
+            s = solve_ivp(lambda t, y: _dynamics(t, y, u_prime), [0, self._dt], [self._u], t_eval=np.linspace(0, self._dt, self._duration))
             ans = s.y[:, -1].T
             self._u, = ans
 
             # v
-            v_prime = (self._p * self._w - self._r * self._u) + (self._fy/self.mass)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, v_prime), [0, self.dt], [self._v], t_eval=np.linspace(0, self.dt, self.duration))
+            v_prime = (self._p * self._w - self._r * self._u) + (self._fy/self._mass)
+            s = solve_ivp(lambda t, y: _dynamics(t, y, v_prime), [0, self._dt], [self._v], t_eval=np.linspace(0, self._dt, self._duration))
             ans = s.y[:, -1].T
             self._v, = ans
 
             # w
-            w_prime = (self._q * self._u - self._p * self._v) + (self._fz/self.mass)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, w_prime), [0, self.dt], [self._w], t_eval=np.linspace(0, self.dt, self.duration))
+            w_prime = (self._q * self._u - self._p * self._v) + (self._fz/self._mass)
+            s = solve_ivp(lambda t, y: _dynamics(t, y, w_prime), [0, self._dt], [self._w], t_eval=np.linspace(0, self._dt, self._duration))
             ans = s.y[:, -1].T
             self._w, = ans
             return
@@ -486,19 +655,22 @@ class UAV():
                 R (np.ndarray): The rotation matrix.
             """
             ned_prime = np.dot(R, np.array([self._u, self._v, self._w]))
-            s = solve_ivp(lambda t, y: _dynamics(t, y, ned_prime), [0, self.dt], [self._north, self._east, self._down], t_eval=np.linspace(0, self.dt, self.duration))
+            s = solve_ivp(lambda t, y: _dynamics(t, y, ned_prime), [0, self._dt], [self._north, self._east, self._down], t_eval=np.linspace(0, self._dt, self._duration))
             ans = s.y[:, -1].T
             self._north, self._east, self._down = ans
             return
 
+        # Wind
+        _wind(self)
+
         # Moments
-        _lmn2pqr(self)
+        _lmn2pqr(self, _lmn)
 
         # pqr
         _pqr2phithetapsi(self, _Framing._pqr2phithetapsi(self._phi, self._theta, self._psi))
 
         # Forces
-        _f2uvw(self)
+        _fxfyfz2uvw(self, _fxfyfz)
 
         # Velocities
         _uvw2ned(self, _Framing._vehicle2body(self._phi, self._theta, self._psi))
