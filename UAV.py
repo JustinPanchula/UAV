@@ -174,7 +174,7 @@ class Plotting():
             valmin=-5,
             valmax=5,
             valstep=0.1,
-            valinit=0,
+            valinit=0.0,
             orientation='vertical'
         )
         # Aileron
@@ -183,8 +183,8 @@ class Plotting():
             label='Aileron',
             valmin=-5,
             valmax=5,
-            valstep=0.1,
-            valinit=0
+            valstep=0.01,
+            valinit=0.0
         )
         # Elevator
         sliders[2] = Slider(
@@ -192,8 +192,8 @@ class Plotting():
             label='Elevator',
             valmin=-5,
             valmax=5,
-            valstep=0.1,
-            valinit=0
+            valstep=0.01,
+            valinit=0.0
         )
         # Rudder
         sliders[3] = Slider(
@@ -201,49 +201,62 @@ class Plotting():
             label='Rudder',
             valmin=-5,
             valmax=5,
-            valstep=0.1,
-            valinit=0
+            valstep=0.01,
+            valinit=0.0
         )
         return sliders
 
     def update_plot(t: float, uav: object, planeAx: Axes, title: str, scaleFactor: float = 1/6) -> Axes:
+        """Updates the uav to model the simulation
+
+        Args:
+            t (float): Inherent to FuncAnimation.
+            uav (object): The UAV.
+            planeAx (Axes): The axis to draw the UAV on.
+            title (str): The tile of the plot.
+            scaleFactor (float, optional): The scale factor of the model. Defaults to 1/6.
+
+        Returns:
+            Axes: The redrawn UAV axis.
+        """
         # Update Coordinates
         uav.uav_dynamics()
 
         # Add to time
-        uav._track_t = np.append(uav._track_t, t)
+        uav._track_t = np.append(uav._track_t, uav._track_t[-1] + uav._dt)
 
         # Update mesh
+        uav._Mesh = mesh.Mesh.from_file(uav._meshFile)
         uav._Mesh.x += uav._north
-        uav._Mesh.y += uav._east
+        uav._Mesh.y -= uav._east
         uav._Mesh.z -= uav._down
         uav._Mesh.rotate([0.5, 0.0, 0.0], -uav._phi)
         uav._Mesh.rotate([0.0, 0.5, 0.0], -uav._theta)
         uav._Mesh.rotate([0.0, 0.0, 0.5], uav._psi)
 
         # Update state lists
-        uav._track_north = np.append(uav._track_north, uav._track_north[-1] + uav._north)
-        uav._track_east = np.append(uav._track_east, uav._track_east[-1] + uav._east)
-        uav._track_down = np.append(uav._track_down, uav._track_down[-1] + uav._down)
-        uav._track_u = np.append(uav._track_u, uav._track_u[-1] + uav._u)
-        uav._track_v = np.append(uav._track_v, uav._track_v[-1] + uav._v)
-        uav._track_w = np.append(uav._track_w, uav._track_w[-1] + uav._w)
-        uav._track_phi = np.append(uav._track_phi, uav._track_phi[-1] + uav._phi)
-        uav._track_theta = np.append(uav._track_theta, uav._track_theta[-1] + uav._theta)
-        uav._track_psi = np.append(uav._track_psi, uav._track_psi[-1] + uav._psi)
-        uav._track_p = np.append(uav._track_p, uav._track_p[-1] + uav._p)
-        uav._track_q = np.append(uav._track_q, uav._track_q[-1] + uav._q)
-        uav._track_r = np.append(uav._track_r, uav._track_r[-1] + uav._r)
+        uav._track_north = np.append(uav._track_north, uav._north)
+        uav._track_east = np.append(uav._track_east, uav._east)
+        uav._track_down = np.append(uav._track_down, uav._down)
+        uav._track_u = np.append(uav._track_u, uav._u)
+        uav._track_v = np.append(uav._track_v, uav._v)
+        uav._track_w = np.append(uav._track_w, uav._w)
+        uav._track_phi = np.append(uav._track_phi, uav._phi)
+        uav._track_theta = np.append(uav._track_theta, uav._theta)
+        uav._track_psi = np.append(uav._track_psi, uav._psi)
+        uav._track_p = np.append(uav._track_p, uav._p)
+        uav._track_q = np.append(uav._track_q, uav._q)
+        uav._track_r = np.append(uav._track_r, uav._r)
 
         # Clear the axis
         planeAx.clear()
 
         # Re-add collection
-        collection = mpl.art3d.Poly3DCollection(uav._Mesh.vectors * scaleFactor, edgecolor='black', linewidth=0.2)
+        collection = mpl.art3d.Poly3DCollection(uav._Mesh.vectors/scaleFactor, edgecolor='black', linewidth=0.2)
         planeAx.add_collection3d(collection)
 
         # Auto scale to mesh size
-        scale = uav._Mesh.points.flatten() * scaleFactor
+        scale = uav._Mesh.points.flatten()/scaleFactor
         planeAx.auto_scale_xyz(scale, scale, scale)
 
         # Format the plot
@@ -280,6 +293,7 @@ class Plotting():
         # Format figure
         fig.set_tight_layout(True)
 
+        # Display
         plt.show()
         return
 
@@ -288,7 +302,8 @@ class UAV():
         """Instantiates the object and sets values.
         """
         # Set mesh
-        self._Mesh = mesh.Mesh.from_file(meshFile)
+        self._meshFile = meshFile
+        self._Mesh = mesh.Mesh.from_file(self._meshFile)
 
         # Set state values
         self._track_north = np.array([0.0], float)     # Position North
@@ -308,7 +323,7 @@ class UAV():
         self._track_theta = np.array([0.0], float)     # Pitch
         self._theta = 0.0
         self._track_psi = np.array([0.0], float)       # Yaw
-        self._psi = 0.0
+        self._psi = 45.0
         self._track_p = np.array([0.0], float)         # Roll rate
         self._p = 0.0
         self._track_q = np.array([0.0], float)         # Pitch rate
@@ -381,6 +396,7 @@ class UAV():
 
         # Set wind state values
         self._airspeed = 30
+        self._u = self._u + self._airspeed
         self._alpha = 0.0
         self._beta = 0.0
 
@@ -410,7 +426,7 @@ class UAV():
 
         # Set simulation parameters
         self._track_t = np.array([0.0], float)
-        self._dt = 0.01
+        self._dt = 0.1
         self._duration = 60
         return
 
@@ -465,11 +481,11 @@ class UAV():
         ax = fig.add_subplot(1, 1, 1, projection='3d')
 
         # Add mesh to plot
-        collection = mpl.art3d.Poly3DCollection(self._Mesh.vectors * scaleFactor, edgecolor='black', linewidth=0.2)
+        collection = mpl.art3d.Poly3DCollection(self._Mesh.vectors/scaleFactor, edgecolor='black', linewidth=0.2)
         ax.add_collection3d(collection)
 
         # Auto scale to mesh size
-        scale = self._Mesh.points.flatten() * scaleFactor
+        scale = self._Mesh.points.flatten()/scaleFactor
         ax.auto_scale_xyz(scale, scale, scale)
 
         # Format the plot
@@ -510,7 +526,7 @@ class UAV():
             Args:
                 self (Self): The UAV object.
             """
-            Vw = _Environment._wind(self._phi, self._theta, self._phi, self._airspeed, self._dt)
+            Vw = _Environment._wind(self._phi, self._theta, self._psi, self._airspeed, self._dt)
             ur = self._u - Vw[0]
             vr = self._v - Vw[1]
             wr = self._w - Vw[2]
@@ -518,7 +534,6 @@ class UAV():
             self._airspeed = np.sqrt(ur**2 + vr**2 + wr**2)
             self._alpha = np.arctan(wr/ur)
             self._beta = np.arcsin(vr/self._airspeed)
-
             return
 
         def _dynamics(t, y, integrand: Any) -> Any:
@@ -557,9 +572,9 @@ class UAV():
                 self (Self): The UAV object.
             """
             # Calculate sigma, Cl, and Cd
-            sigma = (1 + np.exp(-self._M * (self._alpha - self._alpha0)) + np.exp(self._M * (self._alpha - self._alpha0)))/((1 + np.exp(-self._M * (self._alpha - self._alpha0))) * (1 + np.exp(self._M * (self._alpha - self._alpha0))))
+            sigma = (1 + np.exp(-self._M * (self._alpha - self._alpha0)) + np.exp(self._M * (self._alpha + self._alpha0)))/((1 + np.exp(-self._M * (self._alpha - self._alpha0))) * (1 + np.exp(self._M * (self._alpha + self._alpha0))))
             Cl = (1 - sigma) * (self._coeffs['CL0'] + ((self._coeffs['CLalpha']) * self._alpha)) + (sigma * (2 * np.sign(self._alpha) * np.sin(self._alpha)**2 * np.cos(self._alpha)))
-            Cd = self._coeffs['Cdp'] + ((self._coeffs['CL0'] + (self._coeffs['CLalpha'] * self._alpha))**2/(np.pi * self._e * self._ar))
+            Cd = self._coeffs['Cdp'] +((self._coeffs['CL0'] + (self._coeffs['CLalpha'] * self._alpha))**2/(np.pi * self._e * self._ar))
 
             # Calculate Cx, Cxq, Cxde, Cz, Czq, and Czqe
             Cx = -Cd * np.cos(self._alpha) + Cl * np.sin(self._alpha)
@@ -569,7 +584,7 @@ class UAV():
             Czq = -self._coeffs['CDq'] * np.sin(self._alpha) - self._coeffs['CLq'] * np.cos(self._alpha)
             Czde = -self._coeffs['CDdeltae'] * np.sin(self._alpha) - self._coeffs['CLdeltae'] * np.cos(self._alpha)
 
-            self._fx = (-self._mass * self._g * np.sin(self._theta)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (Cx + (Cxq * (self._c/(2 * self._airspeed) * self._q)) + (Cxde * self._elevator))) + ((0.5 * self._p * self._S_prop * self._c_prop) * ((self._k_motor * self._thrust)**2 - self._airspeed**2))
+            self._fx = (-self._mass * self._g * np.sin(self._theta)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (Cx + (Cxq * (self._c/(2 * self._airspeed) * self._q)) + (Cxde * self._elevator))) + ((0.5 * self._rho * self._S_prop * self._c_prop) * ((self._k_motor * self._thrust)**2 - self._airspeed**2))
 
             self._fy = (self._mass * self._g * np.cos(self._theta) * np.sin(self._phi)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._coeffs['Cy0'] + (self._coeffs['Cybeta'] * self._beta) + (self._coeffs['Cyp'] * (self._b/(2 * self._airspeed)) * self._p) * (self._coeffs['Cyr'] * (self._b/(2 * self._airspeed)) * self._r) + (self._coeffs['Cydeltaa'] * self._aileron) + (self._coeffs['Cydeltar'] * self._rudder))) + (0)
 
@@ -616,6 +631,7 @@ class UAV():
             s = solve_ivp(lambda t, y: _dynamics(t, y, phithetapsi_prime), [0, self._dt], [self._p, self._q, self._r], t_eval=np.linspace(0, self._dt, self._duration))
             ans = s.y[:, -1].T
             self._phi, self._theta, self._psi = ans
+            self._psi = 0
             return
 
         def _fxfyfz2uvw(self: Self, fxfyfz: Callable) -> None:
