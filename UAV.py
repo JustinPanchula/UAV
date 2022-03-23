@@ -53,7 +53,7 @@ class _Framing():
         Returns:
             np.ndarray: The rotation matrix.
         """
-        R = np.array([[np.cos(alpha, 0, np.sin(alpha))],
+        R = np.array([[np.cos(alpha), 0, np.sin(alpha)],
                       [0, 1, 0],
                       [-np.sin(alpha), 0, np.cos(alpha)]], float)
         return R
@@ -112,7 +112,7 @@ class _Environment():
 
         sigma_u = 1.06
         sigma_v = sigma_u
-        sigma_w = 1.4
+        sigma_w = 0.7
 
         au = sigma_u * np.sqrt((2 * Va)/lu)
         av = sigma_v * np.sqrt((3 * Va)/lv)
@@ -127,7 +127,7 @@ class _Environment():
         den_v = [1, (2 * Va)/lv, (Va/lv)**2]
         sys_v = ctrl.tf(num_v, den_v)
 
-        num_w = [aw, (aw * Va)/(np.sqrt(3) *lv)]
+        num_w = [aw, (aw * Va)/(np.sqrt(3) * lw)]
         den_w = [1, (2 * Va)/lw, (Va/lw)**2]
         sys_w = ctrl.tf(num_w, den_w)
 
@@ -171,8 +171,8 @@ class Plotting():
         sliders[0] = Slider(
             ax=fig.add_axes([0.11, 0.25, 0.0225, 0.63]),
             label='Thrust',
-            valmin=-5,
-            valmax=5,
+            valmin=0.0,
+            valmax=5.0,
             valstep=0.1,
             valinit=0.0,
             orientation='vertical'
@@ -298,7 +298,7 @@ class Plotting():
         return
 
 class UAV():
-    def __init__(self, meshFile: str) -> None:
+    def __init__(self, meshFile: str, airspeed: float = 30.0) -> None:
         """Instantiates the object and sets values.
         """
         # Set mesh
@@ -350,63 +350,63 @@ class UAV():
 
         # Set aerodynamics parameters
         self._S_wing = 0.55
-        self._b = 2.90
-        self._c = 0.19
+        self._b_wing = 2.8956
+        self._c_wing = 0.18994
         self._S_prop = 0.2027
-        self._c_prop = 1
-        self._k_motor = 80
+        self._c_prop = 1.0
+        self._k_motor = 80.0
         self._rho = 1.2682
         self._e = 0.9
-        self._ar = self._b**2/self._S_wing
+        self._ar = self._b_wing**2/self._S_wing
 
         # Set aerodynamic coefficients
         self._coeffs = {
             'CL0': 0.23,
-            'CD0': 0.043,
-            'Cm0': 0.0135,
-            'CLalpha': 5.61,
+            'CD0': 0.03,
+            'Cm0': -0.02338,
+            'CLalpha': 3.45,
             'CDalpha': 0.030,
-            'Cmalpha': -2.74,
-            'CLq': 7.95,
+            'Cmalpha': -0.38,
+            'CLq': 0.0,
             'CDq': 0.0,
-            'Cmq': -38.21,
-            'CLdeltae': 0.13,
-            'CDdeltae': 0.0135,
-            'Cmdeltae': -0.99,
+            'Cmq': -3.6,
+            'CLdeltae': 0.36,
+            'CDdeltae': 0.0,
+            'Cmdeltae': -0.5,
             'Cdp': 0.0,
             'Cy0': 0.0,
             'Cl0': 0.0,
             'Cn0': 0.0,
             'Cybeta': -0.98,
-            'Clbeta': -0.13,
-            'Cnbeta': 0.073,
+            'Clbeta': -0.12,
+            'Cnbeta': 0.25,
             'Cyp': 0.0,
-            'Clp': -0.51,
-            'Cnp': -0.069,
+            'Clp': -0.26,
+            'Cnp': 0.022,
             'Cyr': 0.0,
-            'Clr': 0.25,
-            'Cnr': -0.095,
-            'Cydeltaa': 0.075,
-            'Cldeltaa': 0.17,
-            'Cndeltaa': -0.011,
-            'Cydeltar': 0.19,
-            'Cldeltar': 0.0024,
-            'Cndeltar': -0.069
+            'Clr': 0.14,
+            'Cnr': -0.35,
+            'Cydeltaa': 0.0,
+            'Cldeltaa': 0.08,
+            'Cndeltaa': 0.06,
+            'Cydeltar': -0.17,
+            'Cldeltar': 0.105,
+            'Cndeltar': -0.032
         }
 
         # Set wind state values
-        self._airspeed = 30
+        self._airspeed = airspeed
         self._u = self._u + self._airspeed
         self._alpha = 0.0
         self._beta = 0.0
 
         # Set additional parameters
         self._M = 50.0
-        self._alpha0 = 0.47
-        self._epsilon = 0.16
+        self._alpha0 = 0.4712
+        self._epsilon = 0.1592
 
         # Set inertial parameters
-        self._mass = 13.0
+        self._mass = 13.5
         self._g = 9.806650
         self._Jx = 0.8244
         self._Jy = 1.135
@@ -414,9 +414,9 @@ class UAV():
         self._Jxz = 0.1204
 
         # Set gamma values
-        self._G0 = self._Jx * self._Jz - self._Jxz ** 2
+        self._G0 = (self._Jx * self._Jz) - self._Jxz ** 2
         self._G1 = (self._Jxz * (self._Jx - self._Jy + self._Jz))/self._G0
-        self._G2 = (self._Jx * (self._Jz - self._Jy) + self._Jxz ** 2)/self._G0
+        self._G2 = (self._Jz * (self._Jz - self._Jy) + self._Jxz ** 2)/self._G0
         self._G3 = self._Jz/self._G0
         self._G4 = self._Jxz/self._G0
         self._G5 = (self._Jz - self._Jx) / self._Jy
@@ -556,13 +556,13 @@ class UAV():
                 self (Self): The UAV object.
             """
             # l moment
-            self._l = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._b * (self._coeffs['Cl0'] + (self._coeffs['Clbeta'] * self._beta) + (self._coeffs['Clp'] * (self._b/(2 * self._airspeed)) * self._p) + (self._coeffs['Clr'] * (self._b/(2 * self._airspeed)) * self._r) + (self._coeffs['Cldeltaa'] * self._aileron) + (self._coeffs['Cldeltar'] * self._rudder))) + (0)
+            self._l = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._b_wing * (self._coeffs['Cl0'] + (self._coeffs['Clbeta'] * self._beta) + (self._coeffs['Clp'] * (self._b_wing/(2 * self._airspeed)) * self._p) + (self._coeffs['Clr'] * (self._b_wing/(2 * self._airspeed)) * self._r) + (self._coeffs['Cldeltaa'] * self._aileron) + (self._coeffs['Cldeltar'] * self._rudder))) + (0)
 
             # m moment
-            self._m = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._c * (self._coeffs['Cm0'] + (self._coeffs['Cmalpha'] * self._alpha) + (self._coeffs['Cmq'] * (self._c/(2 * self._airspeed)) * self._q) + (self._coeffs['Cmdeltae'] * self._elevator))) + (0)
+            self._m = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._c_wing * (self._coeffs['Cm0'] + (self._coeffs['Cmalpha'] * self._alpha) + (self._coeffs['Cmq'] * (self._c_wing/(2 * self._airspeed)) * self._q) + (self._coeffs['Cmdeltae'] * self._elevator))) + (0)
 
             # n moment
-            self._n = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._b * (self._coeffs['Cn0'] + (self._coeffs['Cnbeta'] * self._beta) + (self._coeffs['Cnp'] * (self._b/(2 * self._airspeed)) * self._p) + (self._coeffs['Cnr'] * (self._b/(2 * self._airspeed)) * self._r) + (self._coeffs['Cndeltaa'] * self._aileron) + (self._coeffs['Cndeltar'] * self._rudder))) + (0)
+            self._n = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._b_wing * (self._coeffs['Cn0'] + (self._coeffs['Cnbeta'] * self._beta) + (self._coeffs['Cnp'] * (self._b_wing/(2 * self._airspeed)) * self._p) + (self._coeffs['Cnr'] * (self._b_wing/(2 * self._airspeed)) * self._r) + (self._coeffs['Cndeltaa'] * self._aileron) + (self._coeffs['Cndeltar'] * self._rudder))) + (0)
             return
 
         def _fxfyfz(self: Self) -> None:
@@ -584,11 +584,11 @@ class UAV():
             Czq = -self._coeffs['CDq'] * np.sin(self._alpha) - self._coeffs['CLq'] * np.cos(self._alpha)
             Czde = -self._coeffs['CDdeltae'] * np.sin(self._alpha) - self._coeffs['CLdeltae'] * np.cos(self._alpha)
 
-            self._fx = (-self._mass * self._g * np.sin(self._theta)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (Cx + (Cxq * (self._c/(2 * self._airspeed) * self._q)) + (Cxde * self._elevator))) + ((0.5 * self._rho * self._S_prop * self._c_prop) * ((self._k_motor * self._thrust)**2 - self._airspeed**2))
+            self._fx = (-self._mass * self._g * np.sin(self._theta)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (Cx + (Cxq * (self._c_wing/(2 * self._airspeed) * self._q)) + (Cxde * self._elevator))) + ((0.5 * self._rho * self._S_prop * self._c_prop) * ((self._k_motor * self._thrust)**2 - self._airspeed**2))
 
-            self._fy = (self._mass * self._g * np.cos(self._theta) * np.sin(self._phi)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._coeffs['Cy0'] + (self._coeffs['Cybeta'] * self._beta) + (self._coeffs['Cyp'] * (self._b/(2 * self._airspeed)) * self._p) * (self._coeffs['Cyr'] * (self._b/(2 * self._airspeed)) * self._r) + (self._coeffs['Cydeltaa'] * self._aileron) + (self._coeffs['Cydeltar'] * self._rudder))) + (0)
+            self._fy = (self._mass * self._g * np.cos(self._theta) * np.sin(self._phi)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._coeffs['Cy0'] + (self._coeffs['Cybeta'] * self._beta) + (self._coeffs['Cyp'] * (self._b_wing/(2 * self._airspeed)) * self._p) * (self._coeffs['Cyr'] * (self._b_wing/(2 * self._airspeed)) * self._r) + (self._coeffs['Cydeltaa'] * self._aileron) + (self._coeffs['Cydeltar'] * self._rudder))) + (0)
 
-            self._fz = (self._mass * self._g * np.cos(self._theta) * np.cos(self._phi)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (Cz + (Czq * (self._c/(2 * self._airspeed)) * self._q) + (Czde * self._elevator))) + (0)
+            self._fz = (self._mass * self._g * np.cos(self._theta) * np.cos(self._phi)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (Cz + (Czq * (self._c_wing/(2 * self._airspeed)) * self._q) + (Czde * self._elevator))) + (0) + (self._mass * self._g)
             return
 
         def _lmn2pqr(self: Self, lmn: Callable) -> None:
@@ -601,23 +601,25 @@ class UAV():
 
             lmn(self)
 
-            # p
+            # p setup
             p_prime = (self._G1 * self._p * self._q - self._G2 * self._q * self._r) + (self._G3 * self._l + self._G4 * self._n)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, p_prime), [0, self._dt], [self._p], t_eval=np.linspace(0, self._dt, self._duration))
-            ans = s.y[:, -1].T
-            self._p, = ans
+            s = solve_ivp(lambda t, y: _dynamics(t, y, p_prime), [0, self._dt], [self._p])
+            ans_p = s.y[:, -1].T
 
-            # q
+            # q setup
             q_prime = (self._G5 * self._p * self._r - self._G6 * (self._p**2 - self._r**2)) + ((1/self._Jy) * self._m)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, q_prime), [0, self._dt], [self._q], t_eval=np.linspace(0, self._dt, self._duration))
-            ans = s.y[:, -1].T
-            self._q, = ans
+            s = solve_ivp(lambda t, y: _dynamics(t, y, q_prime), [0, self._dt], [self._q])
+            ans_q = s.y[:, -1].T
 
-            # r
+            # r setup
             r_prime = (self._G7 * self._p * self._q - self._G1 * self._q * self._r) + (self._G4 * self._l + self._G8 * self._n)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, r_prime), [0, self._dt], [self._r], t_eval=np.linspace(0, self._dt, self._duration))
-            ans = s.y[:, -1].T
-            self._r, = ans
+            s = solve_ivp(lambda t, y: _dynamics(t, y, r_prime), [0, self._dt], [self._r])
+            ans_r = s.y[:, -1].T
+
+            # Get answers
+            self._p, = ans_p
+            self._q, = ans_q
+            self._r, = ans_r
             return
 
         def _pqr2phithetapsi(self: Self, R: np.ndarray) -> None:
@@ -628,10 +630,9 @@ class UAV():
                 R (np.ndarray): The rotation matrix.
             """
             phithetapsi_prime = np.dot(R, np.array([self._p, self._q, self._r]))
-            s = solve_ivp(lambda t, y: _dynamics(t, y, phithetapsi_prime), [0, self._dt], [self._p, self._q, self._r], t_eval=np.linspace(0, self._dt, self._duration))
+            s = solve_ivp(lambda t, y: _dynamics(t, y, phithetapsi_prime), [0, self._dt], [self._p, self._q, self._r])
             ans = s.y[:, -1].T
             self._phi, self._theta, self._psi = ans
-            self._psi = 0
             return
 
         def _fxfyfz2uvw(self: Self, fxfyfz: Callable) -> None:
@@ -644,23 +645,25 @@ class UAV():
 
             fxfyfz(self)
 
-            # u
+            # u setup
             u_prime = (self._r * self._v - self._q * self._w) + (self._fx/self._mass)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, u_prime), [0, self._dt], [self._u], t_eval=np.linspace(0, self._dt, self._duration))
-            ans = s.y[:, -1].T
-            self._u, = ans
+            s = solve_ivp(lambda t, y: _dynamics(t, y, u_prime), [0, self._dt], [self._u])
+            ans_u = s.y[:, -1].T
 
-            # v
+            # v setup
             v_prime = (self._p * self._w - self._r * self._u) + (self._fy/self._mass)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, v_prime), [0, self._dt], [self._v], t_eval=np.linspace(0, self._dt, self._duration))
-            ans = s.y[:, -1].T
-            self._v, = ans
+            s = solve_ivp(lambda t, y: _dynamics(t, y, v_prime), [0, self._dt], [self._v])
+            ans_v = s.y[:, -1].T
 
-            # w
+            # w setup
             w_prime = (self._q * self._u - self._p * self._v) + (self._fz/self._mass)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, w_prime), [0, self._dt], [self._w], t_eval=np.linspace(0, self._dt, self._duration))
-            ans = s.y[:, -1].T
-            self._w, = ans
+            s = solve_ivp(lambda t, y: _dynamics(t, y, w_prime), [0, self._dt], [self._w])
+            ans_w = s.y[:, -1].T
+
+            # Get answers
+            self._u, = ans_u
+            self._v, = ans_v
+            self._w, = ans_w
             return
 
         def _uvw2ned(self: Self, R: np.ndarray) -> None:
@@ -671,7 +674,7 @@ class UAV():
                 R (np.ndarray): The rotation matrix.
             """
             ned_prime = np.dot(R, np.array([self._u, self._v, self._w]))
-            s = solve_ivp(lambda t, y: _dynamics(t, y, ned_prime), [0, self._dt], [self._north, self._east, self._down], t_eval=np.linspace(0, self._dt, self._duration))
+            s = solve_ivp(lambda t, y: _dynamics(t, y, ned_prime), [0, self._dt], [self._north, self._east, self._down])
             ans = s.y[:, -1].T
             self._north, self._east, self._down = ans
             return
@@ -689,13 +692,13 @@ class UAV():
         _fxfyfz2uvw(self, _fxfyfz)
 
         # Velocities
-        _uvw2ned(self, _Framing._vehicle2body(self._phi, self._theta, self._psi))
+        _uvw2ned(self, np.transpose(_Framing._vehicle2body(self._phi, self._theta, self._psi)))
         return
 
 if __name__ == '__main__':
     meshFile = 'F117.stl'
     title = 'F117 Nighthawk (1:1)'
-    uav = UAV(meshFile)
+    uav = UAV(meshFile, float(input('What is initial airspeed?: ')))
     fig, ax = uav.plot(title)
     sliders = Plotting.generate_sliders(fig)
     uav.update_uav(sliders)
