@@ -7,12 +7,12 @@ __status__ = 'Dev'
 __doc__ = """This file is used to store all the methods necessary to generate any aircraft from an STL file and simulate its movement."""
 
 # Imports
-from matplotlib.animation import FuncAnimation
 import numpy as np
 from stl import mesh
 from scipy.integrate import solve_ivp
 from control.matlab import lsim
 import control as ctrl
+from simple_pid import PID
 
 # Matplotlib imports
 import matplotlib.pyplot as plt
@@ -20,10 +20,11 @@ from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from mpl_toolkits import mplot3d as mpl
 from matplotlib.widgets import Slider
+from matplotlib.animation import FuncAnimation
 
 # Typing imports
 from typing_extensions import Self
-from typing import Any, Callable, Tuple
+from typing import Tuple
 
 class _Framing():
     def _vehicle2body(phi: float, theta: float, psi: float) -> np.ndarray:
@@ -110,9 +111,9 @@ class _Environment():
         lv = 200
         lw = 50
 
-        sigma_u = 1.06
+        sigma_u = 0.01
         sigma_v = sigma_u
-        sigma_w = 0.7
+        sigma_w = 0.01
 
         au = sigma_u * np.sqrt((2 * Va)/lu)
         av = sigma_v * np.sqrt((3 * Va)/lv)
@@ -165,14 +166,14 @@ class Plotting():
         Returns:
             np.ndarray: The sliders as an ordered numpy array.
         """
-        sliders = np.empty(4, dtype=Slider)
+        sliders = np.empty(4, Slider)
 
         # Thrust
         sliders[0] = Slider(
             ax=fig.add_axes([0.11, 0.25, 0.0225, 0.63]),
             label='Thrust',
             valmin=0.0,
-            valmax=5.0,
+            valmax=1,
             valstep=0.1,
             valinit=0.0,
             orientation='vertical'
@@ -181,8 +182,8 @@ class Plotting():
         sliders[1] = Slider(
             ax=fig.add_axes([0.25, 0.08, 0.65, 0.03]),
             label='Aileron',
-            valmin=-5,
-            valmax=5,
+            valmin=-0.3,
+            valmax=0.3,
             valstep=0.01,
             valinit=0.0
         )
@@ -190,8 +191,8 @@ class Plotting():
         sliders[2] = Slider(
             ax=fig.add_axes([0.25, 0.05, 0.65, 0.03]),
             label='Elevator',
-            valmin=-5,
-            valmax=5,
+            valmin=-0.3,
+            valmax=0.3,
             valstep=0.01,
             valinit=0.0
         )
@@ -199,8 +200,8 @@ class Plotting():
         sliders[3] = Slider(
             ax=fig.add_axes([0.25, 0.02, 0.65, 0.03]),
             label='Rudder',
-            valmin=-5,
-            valmax=5,
+            valmin=-0.3,
+            valmax=0.3,
             valstep=0.01,
             valinit=0.0
         )
@@ -231,7 +232,7 @@ class Plotting():
         uav._Mesh.y -= uav._east
         uav._Mesh.z -= uav._down
         uav._Mesh.rotate([0.5, 0.0, 0.0], -uav._phi)
-        uav._Mesh.rotate([0.0, 0.5, 0.0], -uav._theta)
+        uav._Mesh.rotate([0.0, 0.5, 0.0], uav._theta)
         uav._Mesh.rotate([0.0, 0.0, 0.5], uav._psi)
 
         # Update state lists
@@ -252,11 +253,11 @@ class Plotting():
         planeAx.clear()
 
         # Re-add collection
-        collection = mpl.art3d.Poly3DCollection(uav._Mesh.vectors/scaleFactor, edgecolor='black', linewidth=0.2)
+        collection = mpl.art3d.Poly3DCollection(uav._Mesh.vectors, edgecolor='black', linewidth=0.2)
         planeAx.add_collection3d(collection)
 
         # Auto scale to mesh size
-        scale = uav._Mesh.points.flatten()/scaleFactor
+        scale = uav._Mesh.points.flatten()
         planeAx.auto_scale_xyz(scale, scale, scale)
 
         # Format the plot
@@ -323,7 +324,7 @@ class UAV():
         self._track_theta = np.array([0.0], float)     # Pitch
         self._theta = 0.0
         self._track_psi = np.array([0.0], float)       # Yaw
-        self._psi = 45.0
+        self._psi = 0.0
         self._track_p = np.array([0.0], float)         # Roll rate
         self._p = 0.0
         self._track_q = np.array([0.0], float)         # Pitch rate
@@ -335,10 +336,10 @@ class UAV():
         self._state_names = np.array(['North', 'East', 'Down', 'u', 'v', 'w', 'Phi', 'Theta', 'Psi', 'l', 'm', 'n'], str)
 
         # Set control surfaces
-        self._thrust = 0.0
-        self._aileron = 0.0
-        self._elevator = 0.0
-        self._rudder = 0.0
+        self._thrust = 0.46237247565931516
+        self._aileron = -0.02440474
+        self._elevator = -0.026687397543602744
+        self._rudder = -0.03046846
 
         # Set control surface forces
         self._fx = 0.0
@@ -396,7 +397,6 @@ class UAV():
 
         # Set wind state values
         self._airspeed = airspeed
-        self._u = self._u + self._airspeed
         self._alpha = 0.0
         self._beta = 0.0
 
@@ -426,7 +426,7 @@ class UAV():
 
         # Set simulation parameters
         self._track_t = np.array([0.0], float)
-        self._dt = 0.1
+        self._dt = 0.05
         self._duration = 60
         return
 
@@ -465,7 +465,7 @@ class UAV():
         print('-----------------------------')
         return
 
-    def plot(self: Self, title: str, scaleFactor: float = 1/6) -> Tuple[Figure, Axes]:
+    def plot(self: Self, title: str, scaleFactor: float = 6) -> Tuple[Figure, Axes]:
         """Plots a mesh.
 
         Args:
@@ -481,17 +481,20 @@ class UAV():
         ax = fig.add_subplot(1, 1, 1, projection='3d')
 
         # Add mesh to plot
-        collection = mpl.art3d.Poly3DCollection(self._Mesh.vectors/scaleFactor, edgecolor='black', linewidth=0.2)
+        collection = mpl.art3d.Poly3DCollection(self._Mesh.vectors, edgecolor='black', linewidth=0.2)
         ax.add_collection3d(collection)
 
         # Auto scale to mesh size
-        scale = self._Mesh.points.flatten()/scaleFactor
+        scale = self._Mesh.points.flatten()
         ax.auto_scale_xyz(scale, scale, scale)
 
         # Format the plot
         ax.set_title(title)
 
         return fig, ax
+
+    def compute_trim(self: Self) -> None:
+        return
 
     def update_uav(self: Self, sliders: np.ndarray) -> None:
         """Updates the self paramters based on the slider changes.
@@ -536,24 +539,16 @@ class UAV():
             self._beta = np.arcsin(vr/self._airspeed)
             return
 
-        def _dynamics(t, y, integrand: Any) -> Any:
-            """Returns the integrand for "solve_ivp()".
+        def _dynamics(t, y, UAV: object) -> np.ndarray:
+            """Calculates x_dot all in one function.
 
             Args:
-                t (private): Inherent to "solve_ivp()" method.
-                y (private): Inherent to "solve_ivp()" method.
-                integrand (Any): The integrand.
+                t (private): Inherent to solve_ivp().
+                y (private): Inherent to solve_ivp().
+                UAV (object): The UAV.
 
             Returns:
-                Any: The value of the integrand.
-            """
-            return integrand
-
-        def _lmn(self: Self) -> None:
-            """Calculates the l, m, and n moments based on inputs from the ailerons (p), elevators (q), and rudder (r).
-
-            Args:
-                self (Self): The UAV object.
+                np.ndarray: The x_dot states.
             """
             # l moment
             self._l = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._b_wing * (self._coeffs['Cl0'] + (self._coeffs['Clbeta'] * self._beta) + (self._coeffs['Clp'] * (self._b_wing/(2 * self._airspeed)) * self._p) + (self._coeffs['Clr'] * (self._b_wing/(2 * self._airspeed)) * self._r) + (self._coeffs['Cldeltaa'] * self._aileron) + (self._coeffs['Cldeltar'] * self._rudder))) + (0)
@@ -563,14 +558,7 @@ class UAV():
 
             # n moment
             self._n = (0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._b_wing * (self._coeffs['Cn0'] + (self._coeffs['Cnbeta'] * self._beta) + (self._coeffs['Cnp'] * (self._b_wing/(2 * self._airspeed)) * self._p) + (self._coeffs['Cnr'] * (self._b_wing/(2 * self._airspeed)) * self._r) + (self._coeffs['Cndeltaa'] * self._aileron) + (self._coeffs['Cndeltar'] * self._rudder))) + (0)
-            return
 
-        def _fxfyfz(self: Self) -> None:
-            """Calculates Fx, Fy, and Fz based on the propeller thrust input
-
-            Args:
-                self (Self): The UAV object.
-            """
             # Calculate sigma, Cl, and Cd
             sigma = (1 + np.exp(-self._M * (self._alpha - self._alpha0)) + np.exp(self._M * (self._alpha + self._alpha0)))/((1 + np.exp(-self._M * (self._alpha - self._alpha0))) * (1 + np.exp(self._M * (self._alpha + self._alpha0))))
             Cl = (1 - sigma) * (self._coeffs['CL0'] + ((self._coeffs['CLalpha']) * self._alpha)) + (sigma * (2 * np.sign(self._alpha) * np.sin(self._alpha)**2 * np.cos(self._alpha)))
@@ -584,121 +572,46 @@ class UAV():
             Czq = -self._coeffs['CDq'] * np.sin(self._alpha) - self._coeffs['CLq'] * np.cos(self._alpha)
             Czde = -self._coeffs['CDdeltae'] * np.sin(self._alpha) - self._coeffs['CLdeltae'] * np.cos(self._alpha)
 
+            # Calculate Fx
             self._fx = (-self._mass * self._g * np.sin(self._theta)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (Cx + (Cxq * (self._c_wing/(2 * self._airspeed) * self._q)) + (Cxde * self._elevator))) + ((0.5 * self._rho * self._S_prop * self._c_prop) * ((self._k_motor * self._thrust)**2 - self._airspeed**2))
 
+            # Calculate Fy
             self._fy = (self._mass * self._g * np.cos(self._theta) * np.sin(self._phi)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (self._coeffs['Cy0'] + (self._coeffs['Cybeta'] * self._beta) + (self._coeffs['Cyp'] * (self._b_wing/(2 * self._airspeed)) * self._p) * (self._coeffs['Cyr'] * (self._b_wing/(2 * self._airspeed)) * self._r) + (self._coeffs['Cydeltaa'] * self._aileron) + (self._coeffs['Cydeltar'] * self._rudder))) + (0)
 
+            # Calculate Fz
             self._fz = (self._mass * self._g * np.cos(self._theta) * np.cos(self._phi)) + ((0.5 * self._rho * self._airspeed**2 * self._S_wing) * (Cz + (Czq * (self._c_wing/(2 * self._airspeed)) * self._q) + (Czde * self._elevator))) + (0) + (self._mass * self._g)
-            return
 
-        def _lmn2pqr(self: Self, lmn: Callable) -> None:
-            """Transforms moments into angular rates.
-
-            Args:
-                self (Self): The UAV object.
-                lmn (Callable): The function to calculate l, m, and n.
-            """
-
-            lmn(self)
-
-            # p setup
+            # Calculate derivatives
             p_prime = (self._G1 * self._p * self._q - self._G2 * self._q * self._r) + (self._G3 * self._l + self._G4 * self._n)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, p_prime), [0, self._dt], [self._p])
-            ans_p = s.y[:, -1].T
-
-            # q setup
             q_prime = (self._G5 * self._p * self._r - self._G6 * (self._p**2 - self._r**2)) + ((1/self._Jy) * self._m)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, q_prime), [0, self._dt], [self._q])
-            ans_q = s.y[:, -1].T
-
-            # r setup
             r_prime = (self._G7 * self._p * self._q - self._G1 * self._q * self._r) + (self._G4 * self._l + self._G8 * self._n)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, r_prime), [0, self._dt], [self._r])
-            ans_r = s.y[:, -1].T
-
-            # Get answers
-            self._p, = ans_p
-            self._q, = ans_q
-            self._r, = ans_r
-            return
-
-        def _pqr2phithetapsi(self: Self, R: np.ndarray) -> None:
-            """Transforms angluar rates into angles.
-
-            Args:
-                self (Self): The UAV object.
-                R (np.ndarray): The rotation matrix.
-            """
-            phithetapsi_prime = np.dot(R, np.array([self._p, self._q, self._r]))
-            s = solve_ivp(lambda t, y: _dynamics(t, y, phithetapsi_prime), [0, self._dt], [self._p, self._q, self._r])
-            ans = s.y[:, -1].T
-            self._phi, self._theta, self._psi = ans
-            return
-
-        def _fxfyfz2uvw(self: Self, fxfyfz: Callable) -> None:
-            """Transforms forces to linear velocities.
-
-            Args:
-                self (Self): The UAV object.
-                fxfyfz (Callable): The function to calculate fx, fy, and fz.
-            """
-
-            fxfyfz(self)
-
-            # u setup
+            phi_prime, theta_prime, psi_prime = np.dot(_Framing._pqr2phithetapsi(self._phi, self._theta, self._psi), np.array([self._p, self._q, self._r]))
             u_prime = (self._r * self._v - self._q * self._w) + (self._fx/self._mass)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, u_prime), [0, self._dt], [self._u])
-            ans_u = s.y[:, -1].T
-
-            # v setup
             v_prime = (self._p * self._w - self._r * self._u) + (self._fy/self._mass)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, v_prime), [0, self._dt], [self._v])
-            ans_v = s.y[:, -1].T
-
-            # w setup
             w_prime = (self._q * self._u - self._p * self._v) + (self._fz/self._mass)
-            s = solve_ivp(lambda t, y: _dynamics(t, y, w_prime), [0, self._dt], [self._w])
-            ans_w = s.y[:, -1].T
+            n_prime, e_prime, d_prime = np.dot(np.transpose(_Framing._vehicle2body(self._phi, self._theta, self._psi)), np.array([self._u, self._v, self._w]))
 
-            # Get answers
-            self._u, = ans_u
-            self._v, = ans_v
-            self._w, = ans_w
-            return
+            # Format
+            x_dot = np.array([n_prime, e_prime, d_prime, u_prime, v_prime, w_prime, phi_prime, theta_prime, psi_prime, p_prime, q_prime, r_prime], float)
 
-        def _uvw2ned(self: Self, R: np.ndarray) -> None:
-            """Transforms linear velocity to positions
+            return x_dot
 
-            Args:
-                self (Self): The UAV object
-                R (np.ndarray): The rotation matrix.
-            """
-            ned_prime = np.dot(R, np.array([self._u, self._v, self._w]))
-            s = solve_ivp(lambda t, y: _dynamics(t, y, ned_prime), [0, self._dt], [self._north, self._east, self._down])
-            ans = s.y[:, -1].T
-            self._north, self._east, self._down = ans
-            return
+        # Define states
+        x = np.array([self._north, self._east, self._down, self._u, self._v, self._w, self._phi, self._theta, self._psi, self._p, self._q, self._r])
 
-        # Wind
+        # Run functions
         _wind(self)
+        s = solve_ivp(lambda t, y: _dynamics(t, y, self), [0, self._dt], x)
 
-        # Moments
-        _lmn2pqr(self, _lmn)
+        # Get results
+        self._north, self._east, self._down, self._u, self._v, self._w, self._phi, self._theta, self._psi, self._p, self._q, self._r = s.y[:, -1].T
 
-        # pqr
-        _pqr2phithetapsi(self, _Framing._pqr2phithetapsi(self._phi, self._theta, self._psi))
-
-        # Forces
-        _fxfyfz2uvw(self, _fxfyfz)
-
-        # Velocities
-        _uvw2ned(self, np.transpose(_Framing._vehicle2body(self._phi, self._theta, self._psi)))
         return
 
 if __name__ == '__main__':
     meshFile = 'F117.stl'
     title = 'F117 Nighthawk (1:1)'
-    uav = UAV(meshFile, float(input('What is initial airspeed?: ')))
+    uav = UAV(meshFile)
     fig, ax = uav.plot(title)
     sliders = Plotting.generate_sliders(fig)
     uav.update_uav(sliders)
